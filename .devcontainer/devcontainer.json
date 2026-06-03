@@ -1,0 +1,52 @@
+{
+  "name": "FigureFlow",
+
+  "build": {
+    // Path is relative to the devcontainer.json file.
+    "dockerfile": "Dockerfile",
+    "options": ["--tag=figureflow-dev:260603"]
+  },
+
+  "containerEnv": {
+    "UV_CACHE_DIR": "/${localWorkspaceFolderBasename}/.uv-cache"
+  },
+
+  "remoteEnv": { "GH_TOKEN": "${localEnv:GH_TOKEN}" },
+
+  // Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+  "remoteUser": "ubuntu",
+
+  "mounts": [
+    "source=${localEnv:USERPROFILE}/.claude_devcontainer,target=/home/ubuntu/.claude,type=bind",
+    "source=${localEnv:USERPROFILE}/.claude_devcontainer.json,target=/home/ubuntu/.claude.json,type=bind",
+    "source=${localEnv:USERPROFILE}/.ssh,target=/home/ubuntu/.ssh,type=bind"
+  ],
+
+  // This is where your source code will be mounted.
+  "workspaceMount": "source=${localWorkspaceFolder},target=/${localWorkspaceFolderBasename},type=bind",
+  "workspaceFolder": "/${localWorkspaceFolderBasename}",
+
+  "postCreateCommand": "git config --local gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers && git config --local user.signingkey ~/.ssh/id_ed25519.pub",
+  // "postStartCommand": "uv sync --directory backend --no-install-project --all-extras && bun install --cwd frontend",
+
+  "forwardPorts": [8000, 5173, 3000],
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.debugpy",
+        "ms-python.vscode-pylance",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.makefile-tools",
+        "njpwerner.autodocstring",
+        "tamasfe.even-better-toml",
+        "charliermarsh.ruff",
+        "esbenp.prettier-vscode",
+        "github.vscode-github-actions",
+        "svelte.svelte-vscode",
+        "anthropic.claude-code"
+      ]
+    }
+  }
+}
