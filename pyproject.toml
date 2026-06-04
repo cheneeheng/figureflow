@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "figureflow"
+version = "0.1.0"
+description = "Interactive flow diagrams in Python, styled shape-by-shape."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+dependencies = [
+    "anywidget>=0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "anywidget[dev]>=0.9",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/figureflow"]
+
+# Force-include the prebuilt front-end so the bundle always ships in the wheel,
+# even when it is a build artifact rather than a tracked source file.
+[tool.hatch.build.targets.wheel.force-include]
+"src/figureflow/static/widget.js" = "figureflow/static/widget.js"
+"src/figureflow/static/widget.css" = "figureflow/static/widget.css"
