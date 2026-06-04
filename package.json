@@ -9,6 +9,7 @@
     "dev": "esbuild js/index.js --bundle --format=esm --loader:.css=text --sourcemap --watch --outfile=src/figureflow/static/widget.js"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@xyflow/react": "^12.3.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
