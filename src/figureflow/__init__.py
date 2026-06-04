@@ -1,8 +1,10 @@
 """figureflow — interactive flow diagram widget for Python.
 
-Skeleton surface: ``Shape``, ``Node``, ``Edge`` and ``Flow`` are all present
-with their full target field lists, but only the render+sync loop is wired up.
-Later iterations fill the stubbed methods (named in each ``NotImplementedError``).
+Public surface: ``Shape``, ``Node``, ``Edge`` and ``Flow``. The full MVP is
+implemented — per-element node/edge styling (plus L1 ``svg_path`` / L2 ``html``),
+canvas editing (multi-select, copy/paste, undo/redo), grouping, dagre auto-layout,
+JSON + mermaid export, and the L3 custom-component escape hatch
+(``register_node_type`` / ``register_edge_type`` / ``on``).
 """
 
 from __future__ import annotations
