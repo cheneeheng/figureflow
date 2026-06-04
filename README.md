@@ -137,21 +137,44 @@ group_id = flow.group(["a", "b", "c"], label="My Group")
 flow.layout(direction="LR")      # dagre left-to-right
 ```
 
+## Examples
+
+Runnable examples live in [`examples/`](examples). Each script builds a diagram and prints a
+text summary, so you can run it from a terminal — then drop the same code into a notebook cell
+(ending with `flow`) to see it rendered interactively:
+
+```bash
+pip install -e .                  # install figureflow first
+python examples/quickstart.py     # all 8 shapes + edge styles (+ L1 SVG / L2 HTML nodes)
+python examples/grouping_layout.py  # group() + dagre layout()
+python examples/serialization.py    # to_json / from_json round-trip + to_mermaid
+python examples/custom_component.py  # L3 custom JS node + emit/on events
+```
+
+See [`examples/README.md`](examples/README.md) for what each one demonstrates and how to view
+the live widget.
+
+## Documentation
+
+- **User manual** — [`docs/guide/`](docs/guide): a task-by-task guide covering installation,
+  building diagrams, the full style reference, canvas interactions, grouping & layout,
+  serialization, custom components, and troubleshooting.
+- **Design & roadmap** — [`docs/planning/`](docs/planning): `SKELETON.md` is the authoritative
+  target surface and `ITER_01`–`ITER_06` are the iterations that filled it in.
+
 ## Development
 
 The Python package and the front-end build are separate. Use [bun](https://bun.sh):
 
 ```bash
-bun install        # install front-end build dependencies
-bun run build      # bundle js/index.js → src/figureflow/static/widget.js
-bun run dev        # rebuild on change (--watch, with sourcemaps)
-pip install -e .   # editable install of the Python package
+bun install              # install front-end build dependencies
+bun run build            # bundle js/index.js → src/figureflow/static/widget.js
+bun run dev              # rebuild on change (--watch, with sourcemaps)
+pip install -e ".[dev]"  # editable install of the Python package + pytest
+python -m pytest tests/  # run the test suite
 ```
 
 `widget.js` is a checked-in build artifact — rebuild after editing `js/index.js`.
-
-The roadmap lives in [`docs/planning/`](docs/planning): `SKELETON.md` is the authoritative
-target surface and `ITER_01`–`ITER_06` are the iterations that filled it in.
 
 ## Out of MVP scope
 
