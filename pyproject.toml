@@ -11,11 +11,7 @@ license = { file = "LICENSE" }
 requires-python = ">=3.9"
 dependencies = [
     "anywidget>=0.9",
-]
-
-[project.optional-dependencies]
-dev = [
-    "anywidget[dev]>=0.9",
+    "traitlets",
 ]
 
 [tool.hatch.build.targets.wheel]
