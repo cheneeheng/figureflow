@@ -75,9 +75,6 @@ def to_mermaid(flow: "Flow", direction: str = "TB") -> str:
         style = e.get("style", {})
         dash = style.get("strokeDasharray")
         arrow = "-->" if not dash else "-.->"
-        marker_end = (e.get("markerEnd") or {}).get("type", "arrow")
-        if marker_end == "arrowclosed":
-            arrow = arrow.rstrip(">") + "-->" if not dash else "-.->"
         if label:
             lines.append(f"    {src} {arrow}|\"{label}\"| {tgt}")
         else:

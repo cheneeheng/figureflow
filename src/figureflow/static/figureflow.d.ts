@@ -11,7 +11,15 @@
  * Usage in a custom component file:
  *
  *   const { React, xyflow: { Handle, Position } } = globalThis.figureflow;
- *   export default function MyNode({ data, selected, emit }) { ... }
+ *   export default function MyNode({ data, selected }) {
+ *     // emit is injected into data by figureflow:
+ *     const { emit } = data;
+ *     return React.createElement("div", { onClick: () => emit("clicked", {}) }, data.label);
+ *   }
+ *
+ * Note: `emit` is delivered inside `data` (not as a separate top-level prop)
+ * because xyflow's custom component API only exposes user-defined data through
+ * the `data` prop. Authors should destructure it from `data`.
  */
 
 export interface FigureflowGlobal {
@@ -26,26 +34,44 @@ declare global {
   var figureflow: FigureflowGlobal;
 }
 
-/** Props passed to every custom node component. */
-export interface NodeProps<TData = Record<string, unknown>> {
-  /** The node's data object (from Python Node.to_dict()["data"]). */
-  data: TData;
-  /** Whether this node is currently selected on the canvas. */
-  selected: boolean;
+/** Base data fields injected into every node's data object by figureflow. */
+export interface FigureflowNodeData {
+  label?: string;
+  shape?: string;
+  fill?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  fontFamily?: string;
+  fontSize?: number;
+  fontColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+  textAlign?: string;
+  width?: number;
+  height?: number;
+  html?: string;
+  svgPath?: string;
   /** Send a named event + payload to the Python Flow.on() handler. */
   emit: (event: string, payload?: unknown) => void;
+  [key: string]: unknown;
+}
+
+/**
+ * Props passed to every custom node component.
+ * `emit` is accessed via `data.emit` (injected by figureflow at render time).
+ */
+export interface NodeProps<TData extends FigureflowNodeData = FigureflowNodeData> {
+  id: string;
+  data: TData;
+  selected: boolean;
+  type?: string;
 }
 
 /** Props passed to every custom edge component. */
 export interface EdgeProps<TData = Record<string, unknown>> {
-  /** Source node id. */
+  id: string;
   source: string;
-  /** Target node id. */
   target: string;
-  /** The edge's data object. */
-  data: TData;
-  /** Whether this edge is currently selected. */
+  data?: TData;
   selected: boolean;
-  /** Send a named event + payload to the Python Flow.on() handler. */
-  emit: (event: string, payload?: unknown) => void;
 }

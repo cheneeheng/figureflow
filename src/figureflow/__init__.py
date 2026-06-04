@@ -76,7 +76,7 @@ class Node:
     shape: Shape = field(default_factory=lambda: _BASELINE["shape"])
     fill: str = field(default_factory=lambda: _BASELINE["fill"])
     border_color: str = field(default_factory=lambda: _BASELINE["border_color"])
-    border_width: int = field(default_factory=lambda: _BASELINE["border_width"])
+    border_width: float = field(default_factory=lambda: _BASELINE["border_width"])
     font_family: str = field(default_factory=lambda: _BASELINE["font_family"])
     font_size: int = field(default_factory=lambda: _BASELINE["font_size"])
     font_color: str = field(default_factory=lambda: _BASELINE["font_color"])
@@ -157,7 +157,7 @@ class Edge:
     marker_start: str = field(default_factory=lambda: _BASELINE["marker_start"])
     marker_end: str = field(default_factory=lambda: _BASELINE["marker_end"])
     color: str = field(default_factory=lambda: _BASELINE["edge_color"])
-    width: int = field(default_factory=lambda: _BASELINE["edge_width"])
+    width: float = field(default_factory=lambda: _BASELINE["edge_width"])
     dash: str = field(default_factory=lambda: _BASELINE["dash"])
     font_family: str = field(default_factory=lambda: _BASELINE["font_family"])
     font_size: int = field(default_factory=lambda: _BASELINE["font_size"])
@@ -288,8 +288,6 @@ class Flow(anywidget.AnyWidget):
 
     def group(self, node_ids: List[str], label: str = "") -> str:
         """Create a parent group containing the given nodes; return the group id."""
-        import math
-
         group_n = sum(1 for n in self.nodes if n.get("type") == "group")
         group_id = f"group-{group_n}"
 

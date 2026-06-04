@@ -28,6 +28,12 @@ dependencies = [
     "traitlets",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [project.urls]
 Repository = "https://github.com/cheneeheng/figureflow"
 

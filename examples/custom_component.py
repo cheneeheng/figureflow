@@ -5,7 +5,9 @@ as `my_node.js` and serve it from a local file server, or use a data URL.
 
 my_node.js:
     const { React, xyflow: { Handle, Position } } = globalThis.figureflow;
-    export default function ClickableNode({ data, selected, emit }) {
+    export default function ClickableNode({ data, selected }) {
+      // figureflow injects `emit` into data at render time
+      const { emit } = data;
       return React.createElement(
         "div",
         {

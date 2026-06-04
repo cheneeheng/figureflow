@@ -245,6 +245,9 @@ const GroupNode = React.memo(GroupNodeInner);
 
 const _builtinNodeTypes = { shape: ShapeNode, group: GroupNode };
 const _builtinEdgeTypes = {};
+
+// Stable non-inline props for <ReactFlow> (inline arrays/objects remount the graph).
+const PAN_ON_DRAG = [1, 2]; // middle + right button pan; left drag = box select
 // These will be augmented by L3 registrations at runtime via useMemo in App.
 
 // ─── Auto-layout (dagre) ─────────────────────────────────────────────────────
@@ -345,16 +348,15 @@ function App({ model }) {
     const onLayout = () => {
       const req = model.get("_layout_request");
       if (!req || !req.nonce) return;
-      setNodes((current) => {
-        setEdges((currentEdges) => {
-          const arranged = runDagre(current, currentEdges, req.direction);
-          skipHistoryRef.current = false; // layout IS a history entry
-          model.set("nodes", arranged);
-          model.save_changes();
-          return currentEdges;
-        });
-        return current; // will be overwritten by the model change event
-      });
+      // Read current state from the model (always up-to-date; avoids stale
+      // closure and the nested-setter anti-pattern).
+      const currentNodes = model.get("nodes") || [];
+      const currentEdges = model.get("edges") || [];
+      const arranged = runDagre(currentNodes, currentEdges, req.direction);
+      // Push to history so layout is a single undoable entry (ITER_03 seam).
+      pushHistory(histRef, currentNodes, currentEdges);
+      model.set("nodes", arranged);
+      model.save_changes();
     };
     model.on("change:_layout_request", onLayout);
     return () => model.off("change:_layout_request", onLayout);
@@ -619,7 +621,7 @@ function App({ model }) {
       onlyRenderVisibleElements: true,
       selectionOnDrag: true,
       multiSelectionKeyCode: "Shift",
-      panOnDrag: [1, 2], // left+middle button pan; right drag = box select
+      panOnDrag: PAN_ON_DRAG,
     },
     React.createElement(Background, null),
     React.createElement(Controls, null),
