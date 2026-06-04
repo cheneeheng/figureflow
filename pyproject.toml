@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyxyflow"
+version = "0.1.0"
+description = "Interactive flowchart widget for Python, styled shape-by-shape."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+dependencies = [
+    "anywidget>=0.9",
+    "traitlets",
+]
+
+[project.optional-dependencies]
+dev = ["anywidget[dev]"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyxyflow"]
+
+# The front-end bundle is produced by esbuild (maintainer/CI build) and may be
+# git-ignored as a build artifact; force-include it so the wheel ships offline.
+[tool.hatch.build]
+artifacts = [
+    "src/pyxyflow/static/widget.js",
+    "src/pyxyflow/static/widget.css",
+]

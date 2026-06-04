@@ -1,0 +1,8 @@
+/* Container sizing only — the xyflow stylesheet is bundled into widget.js. */
+.pyxyflow-widget {
+  width: 100%;
+}
+
+.pyxyflow-widget .react-flow {
+  height: 100%;
+}

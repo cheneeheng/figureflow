@@ -219,3 +219,10 @@ __marimo__/
 
 # Claude
 .claude/settings.local.json
+# Node / front-end build (maintainer-side only)
+node_modules/
+package-lock.json
+
+# esbuild output (the front-end bundle is built in CI and force-included into
+# the wheel via hatchling artifacts; not tracked in source control)
+src/pyxyflow/static/widget.js
