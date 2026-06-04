@@ -219,3 +219,8 @@ __marimo__/
 
 # Claude
 .claude/settings.local.json
+
+# Node.js (maintainer-side front-end build)
+node_modules/
+bun.lockb
+npm-debug.log*
