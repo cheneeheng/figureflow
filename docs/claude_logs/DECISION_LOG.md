@@ -1,5 +1,17 @@
 # Decision Log
 
+### Entry 004
+
+**Type:** Decision
+**Mode:** Autonomous
+**Timestamp:** 2026-06-05T00:00:00Z
+**Task:** Implement SKELETON_V2 (the v2 multi-transport seam) on branch feat/transport-seam-skeleton-v2.
+
+**Context:** The request was "implement-from-plan skeleton v2." A SKELETON artifact can be read as either (a) the scaffold-plus-honest-gates target the skeleton itself describes, or (b) the full v2 including its three iterations (ITER_V2_01–03). The scope delta is large: (a) is a Python module tree with NotImplementedError gates; (b) additionally fills the sync-core, all three adapters, the JS Transport rewire, and a widget.js rebuild.
+**Decision:** Implemented (a) — the SKELETON_V2 scaffold. The implement-from-plan skill resolves a SKELETON to scaffold + stubbed entry points, and SKELETON_V2 §04 explicitly specifies the target skeleton state: `display()` works the v1 way (returns self), and `to_html()/serve()/stop()` are present but raise `NotImplementedError` naming their filling iteration. Created `synccore.py` (gated `diff`/`is_echo` + shared `LOCK`) and the `transport/` package (`base.Transport` ABC fully defined since it *is* the seam; `AnywidgetAdapter`/`StaticExportAdapter`/`ServerAdapter` as honestly-gated stubs). The concrete adapters and JS work belong to the iterations.
+**Impact / Risk:** No behavior change to the shipped v1 surface; new methods are additive. User-facing docs (README, docs/guide, examples) were deliberately NOT updated for the gated methods — documenting NotImplementedError stubs as features would mislead; docs travel with each iteration when the methods become functional. No new dependency; transport/ and synccore.py are auto-included by hatchling's src-layout packaging (no pyproject change needed).
+**Outcome:** Scaffold in place; tests added asserting the gates and the ABC contract. Tests not run (not requested).
+
 ### Entry 001
 
 **Type:** Decision

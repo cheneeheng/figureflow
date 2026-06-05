@@ -352,3 +352,91 @@ class TestToMermaid:
     def test_id_hyphens_replaced(self):
         flow = Flow(nodes=[Node("my-node", pos=(0, 0))])
         assert "my_node" in to_mermaid(flow)
+
+
+# ─── v2 transport seam (SKELETON_V2) ─────────────────────────────────────────
+
+class TestTransportSeam:
+    def test_display_returns_self(self):
+        flow = Flow()
+        assert flow.display() is flow
+
+    def test_to_html_gated_to_iteration(self):
+        with pytest.raises(NotImplementedError, match="ITER_V2_02"):
+            Flow().to_html()
+
+    def test_serve_gated_to_iteration(self):
+        with pytest.raises(NotImplementedError, match="ITER_V2_03"):
+            Flow().serve()
+
+    def test_stop_gated_to_iteration(self):
+        with pytest.raises(NotImplementedError, match="ITER_V2_03"):
+            Flow().stop()
+
+
+class TestSyncCore:
+    def test_diff_gated_to_iteration(self):
+        from figureflow import synccore
+        with pytest.raises(NotImplementedError, match="ITER_V2_01"):
+            synccore.diff(None, {})
+
+    def test_is_echo_gated_to_iteration(self):
+        from figureflow import synccore
+        with pytest.raises(NotImplementedError, match="ITER_V2_01"):
+            synccore.is_echo({}, None)
+
+    def test_lock_present(self):
+        import threading
+        from figureflow import synccore
+        # The shared mutate-then-snapshot lock the server adapter will hold.
+        assert isinstance(synccore.LOCK, type(threading.Lock()))
+
+
+class TestTransportContract:
+    def test_base_is_abstract(self):
+        from figureflow.transport import Transport
+        with pytest.raises(TypeError):
+            Transport()  # cannot instantiate the ABC directly
+
+    def test_start_stop_default_noops(self):
+        from figureflow.transport import Transport
+
+        class _Concrete(Transport):
+            def bind(self, flow):
+                pass
+
+            def send_state(self, nodes, edges, meta):
+                pass
+
+            def on_change(self, handler):
+                pass
+
+            def emit(self, event, payload):
+                pass
+
+        t = _Concrete()
+        assert t.start() is None
+        assert t.stop() is None
+
+    def test_adapters_subclass_transport(self):
+        from figureflow.transport import Transport
+        from figureflow.transport.anywidget_adapter import AnywidgetAdapter
+        from figureflow.transport.static_export import StaticExportAdapter
+        from figureflow.transport.server_adapter import ServerAdapter
+        for cls in (AnywidgetAdapter, StaticExportAdapter, ServerAdapter):
+            assert issubclass(cls, Transport)
+
+    def test_anywidget_adapter_gated(self):
+        from figureflow.transport.anywidget_adapter import AnywidgetAdapter
+        with pytest.raises(NotImplementedError, match="ITER_V2_01"):
+            AnywidgetAdapter().bind(Flow())
+
+    def test_static_adapter_gated(self):
+        from figureflow.transport.static_export import StaticExportAdapter
+        with pytest.raises(NotImplementedError, match="ITER_V2_02"):
+            StaticExportAdapter().render_html(Flow())
+
+    def test_server_adapter_gated(self):
+        from figureflow.transport.server_adapter import ServerAdapter
+        with pytest.raises(NotImplementedError, match="ITER_V2_03"):
+            ServerAdapter().start()
