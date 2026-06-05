@@ -56,3 +56,15 @@ contradicting the implemented MVP. The coding contract discourages editing code 
 and refreshed it to describe the implemented surface. Did not touch any executable code.
 **Impact / Risk:** Minimal — docstring text only; the 44-test suite still passes.
 **Outcome:** Docstring updated; tests green.
+
+### Entry 1
+
+**Type:** Decision
+**Mode:** Autonomous
+**Timestamp:** 2026-06-05T00:00:00Z
+**Task:** Create v1.0.0 changelog, tag, and GitHub release.
+
+**Context:** No prior git tags or CHANGELOG existed; pyproject.toml declared version 0.1.0 while the request targets a v1.0.0 release.
+**Decision:** (1) Authored CHANGELOG.md in Keep a Changelog format with a single [1.0.0] entry documenting the full MVP surface, since this is the first release. (2) Bumped pyproject.toml version 0.1.0 -> 1.0.0 and the dev-status classifier Beta -> Production/Stable so the published package matches the release tag. Left README/CLAUDE.md "v0.1" narrative untouched as out of scope (flagged to user).
+**Impact / Risk:** Version metadata now reflects 1.0.0. Tag and release are outward-facing and were explicitly requested. README/CLAUDE.md status text is now stale.
+**Outcome:** Changelog, tag v1.0.0, and release created.

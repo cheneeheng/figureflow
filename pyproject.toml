@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "figureflow"
-version = "0.1.0"
+version = "1.0.0"
 description = "Interactive flow diagrams in Python, styled shape-by-shape."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
 keywords = ["jupyter", "widget", "flowchart", "diagram", "react-flow"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Framework :: Jupyter",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
