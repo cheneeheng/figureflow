@@ -14,7 +14,7 @@ The front-end is a **prebuilt, vendored bundle**: React + @xyflow/react (+ its C
 bundled into `src/figureflow/static/widget.js`, which ships in the wheel. End users never
 run a JS toolchain and the widget works offline (no CDN).
 
-Status: **v0.1 — full MVP implemented.** ITER_01–ITER_06 all landed: per-element node
+Status: **v1.0.0 — full MVP implemented.** ITER_01–ITER_06 all landed: per-element node
 shapes/styling (+ L1 `svg_path`, L2 `html`), edge styling at parity, multi-select +
 within-canvas styled copy/paste, minimap, canvas undo/redo, grouping, dagre auto-layout,
 JSON save/load + mermaid export, and the L3 custom-component escape hatch (`emit`/`on`).
