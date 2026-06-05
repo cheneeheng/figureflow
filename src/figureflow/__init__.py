@@ -374,6 +374,72 @@ class Flow(anywidget.AnyWidget):
         from figureflow.serialize import to_mermaid as _to_mermaid
         return _to_mermaid(self, direction=direction)
 
+    # --- v2: transport seam — three host entry points (SKELETON_V2 §04) -------
+    # ``Flow`` is itself the canonical state holder and the anywidget. The seam
+    # routes its three doors through transport adapters; in the skeleton only
+    # ``display()`` is wired (the v1 way), the rest are honestly gated.
+
+    def display(self) -> "Flow":
+        """Render in a notebook via the anywidget adapter.
+
+        v1 behavior, now the explicit notebook door of the transport seam. Since
+        ``Flow`` *is* the ``AnyWidget``, this returns ``self`` and the v1
+        auto-render path (``_repr_mimebundle_`` on a cell's last line) is
+        unchanged. ITER_V2_01 moves the renderer's internal call path behind
+        ``transport.AnywidgetAdapter`` with no behavior change.
+        """
+        return self
+
+    def to_html(self, path: Optional[str] = None, *, title: Optional[str] = None) -> str:
+        """Write a self-contained, offline, client-side-interactive snapshot.
+
+        Args:
+            path: If given, the HTML is written there (UTF-8); the string is
+                returned either way.
+            title: Optional page ``<title>``.
+
+        Returns:
+            The self-contained HTML string.
+
+        Raises:
+            NotImplementedError: Always — implemented in ITER_V2_02.
+        """
+        raise NotImplementedError("Flow.to_html is implemented in ITER_V2_02")
+
+    def serve(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 0,
+        *,
+        open_browser: bool = True,
+        block: bool = False,
+    ) -> str:
+        """Serve the diagram in a plain browser tab with live bidirectional sync.
+
+        Starts a dependency-free stdlib SSE+POST server bound to localhost.
+
+        Args:
+            host: Bind address; localhost only (never ``0.0.0.0``).
+            port: ``0`` lets the OS pick a free port.
+            open_browser: Launch the URL via ``webbrowser``.
+            block: Join the server thread (for ``python script.py`` use).
+
+        Returns:
+            The served URL.
+
+        Raises:
+            NotImplementedError: Always — implemented in ITER_V2_03.
+        """
+        raise NotImplementedError("Flow.serve is implemented in ITER_V2_03")
+
+    def stop(self) -> None:
+        """Stop a running ``serve()`` server.
+
+        Raises:
+            NotImplementedError: Always — implemented in ITER_V2_03.
+        """
+        raise NotImplementedError("Flow.stop is implemented in ITER_V2_03")
+
     _BUILTIN_NODE_TYPES = frozenset({"shape", "group"})
     _BUILTIN_EDGE_TYPES = frozenset({"default", "straight", "step", "smoothstep"})
 
