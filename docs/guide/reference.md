@@ -123,6 +123,15 @@ Flow(nodes=None, edges=None, color_mode="light", fit_view=True, height=480)
 | `register_node_type` | `(name, module) -> None` | Register an L3 node component. `ValueError` on an invalid/colliding name |
 | `register_edge_type` | `(name, module) -> None` | Register an L3 edge component. `ValueError` on an invalid/colliding name |
 | `on` | `(event, callback) -> unsubscribe` | Subscribe to `emit()` events; returns an unsubscribe function |
+| `display` | `() -> Flow` | Render in a notebook (returns `self`; a bare `flow` cell does the same) |
+| `to_html` | `(path=None, *, title=None) -> str` | Self-contained offline interactive snapshot; writes to `path` if given, returns the HTML |
+| `serve` | `(host="127.0.0.1", port=0, *, open_browser=True, block=False) -> str` | Live bidirectional sync in a browser tab (stdlib server, localhost only); returns the URL |
+| `stop` | `() -> None` | Stop a running `serve()` server (no-op if none) |
+
+### Display targets
+
+`display()`, `to_html()`, and `serve()` are three interchangeable doors onto the same
+renderer (the v2 transport seam). See the how-to: [Display anywhere](how-to/display-anywhere.md).
 
 ### Serialization methods
 

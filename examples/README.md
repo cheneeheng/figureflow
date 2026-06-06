@@ -17,6 +17,7 @@ python examples/quickstart.py
 python examples/grouping_layout.py
 python examples/serialization.py
 python examples/custom_component.py
+python examples/display_targets.py        # add --serve for the live browser tab
 ```
 
 | Example | Demonstrates |
@@ -25,6 +26,7 @@ python examples/custom_component.py
 | [`grouping_layout.py`](grouping_layout.py) | `Flow.group()` to bundle nodes into a labeled container, then `Flow.layout()` to auto-arrange with dagre. |
 | [`serialization.py`](serialization.py) | Lossless `to_json()` / `from_json()` round-trip and a lossy `to_mermaid()` export. |
 | [`custom_component.py`](custom_component.py) | The L3 escape hatch — a custom JS node registered via `register_node_type`, sending click events to Python through `emit` / `Flow.on`. |
+| [`display_targets.py`](display_targets.py) | One `Flow`, three transports: `display()` (notebook), `to_html()` (offline snapshot), and `serve()` (live browser tab). |
 
 ## Seeing the interactive widget
 

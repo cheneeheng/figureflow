@@ -60,6 +60,10 @@ flow.add_edge(Edge("c", "d"))
 | `Flow.add_node` | `(node)` | Append + sync |
 | `Flow.add_edge` | `(edge)` | Append + sync |
 | `Flow.positions` | `() → {id: (x,y)}` | Current canvas geometry |
+| `Flow.display` | `() → Flow` | Render in a notebook (anywidget; the default cell-output door) |
+| `Flow.to_html` | `(path=None, *, title=None) → str` | Self-contained offline interactive snapshot; writes to `path` if given |
+| `Flow.serve` | `(host="127.0.0.1", port=0, *, open_browser=True, block=False) → str` | Live bidirectional sync in a plain browser tab (stdlib server); returns the URL |
+| `Flow.stop` | `() → None` | Stop a running `serve()` server |
 | `Flow.undo` / `Flow.redo` | `()` | Step through canvas-edit history |
 | `Flow.group` | `(node_ids, label="") → str` | Create a parent group; returns group id |
 | `Flow.layout` | `(algo="dagre", direction="TB", **opts)` | Auto-arrange nodes via dagre |
@@ -137,6 +141,31 @@ group_id = flow.group(["a", "b", "c"], label="My Group")
 flow.layout(direction="LR")      # dagre left-to-right
 ```
 
+## Display targets
+
+The same `Flow` renders through three interchangeable transports — one renderer,
+three front doors. The mental model (build a `Flow`, style per-element) is identical;
+only how you ship it to a viewer changes.
+
+```python
+# 1) Notebook — live kernel round-trip (the default; a bare `flow` cell also works)
+flow.display()
+
+# 2) Plain browser tab — full bidirectional sync to the live Python process,
+#    over a dependency-free stdlib server (localhost only). Returns the URL.
+url = flow.serve()              # add block=True for `python script.py`
+# ... edit in the browser; flow.positions() reflects it; flow.add_node(...) pushes live ...
+flow.stop()
+
+# 3) Self-contained offline snapshot — interactive client-side (pan/zoom/drag),
+#    no Python behind it. Reimport edits via the in-page "Download JSON" button.
+html = flow.to_html("diagram.html")
+restored = Flow.from_json(open("figureflow.json").read())   # the downloaded layout
+```
+
+`serve()` binds `127.0.0.1` only and adds **no dependencies** (stdlib SSE + POST).
+`to_html()` inlines the vendored bundle, so the file opens via `file://` with no network.
+
 ## Examples
 
 Runnable examples live in [`examples/`](examples). Each script builds a diagram and prints a
@@ -159,8 +188,9 @@ the live widget.
 - **User manual** — [`docs/guide/`](docs/guide): a task-by-task guide covering installation,
   building diagrams, the full style reference, canvas interactions, grouping & layout,
   serialization, custom components, and troubleshooting.
-- **Design & roadmap** — [`docs/planning/`](docs/planning): `SKELETON.md` is the authoritative
-  target surface and `ITER_01`–`ITER_06` are the iterations that filled it in.
+- **Design & roadmap** — [`docs/planning/`](docs/planning): `SKELETON.md` + `ITER_01`–`ITER_06`
+  are the v1 target surface and its iterations; `SKELETON_V2.md` + `ITER_V2_01`–`ITER_V2_03`
+  add the multi-transport seam (`display()` / `to_html()` / `serve()`).
 
 ## Development
 

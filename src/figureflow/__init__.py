@@ -12,10 +12,13 @@ from __future__ import annotations
 import pathlib
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import anywidget
 import traitlets
+
+if TYPE_CHECKING:
+    from figureflow.transport.base import Transport
 
 __all__ = ["Shape", "Node", "Edge", "Flow"]
 
@@ -257,6 +260,9 @@ class Flow(anywidget.AnyWidget):
         self.color_mode = color_mode
         self.fit_view = fit_view
         self.height = height
+        # v2 transport seam: the bound adapter (lazily created by display()/
+        # serve()). None until a host door is opened.
+        self._transport: Optional["Transport"] = None
         # on() machinery — declared but inert until ITER_06.
         self._handlers: Dict[str, List[Callable[..., Any]]] = {}
         self.nodes = [n.to_dict() for n in (nodes or [])]
@@ -382,12 +388,22 @@ class Flow(anywidget.AnyWidget):
     def display(self) -> "Flow":
         """Render in a notebook via the anywidget adapter.
 
-        v1 behavior, now the explicit notebook door of the transport seam. Since
-        ``Flow`` *is* the ``AnyWidget``, this returns ``self`` and the v1
-        auto-render path (``_repr_mimebundle_`` on a cell's last line) is
-        unchanged. ITER_V2_01 moves the renderer's internal call path behind
-        ``transport.AnywidgetAdapter`` with no behavior change.
+        v1 behavior, now the explicit notebook door of the transport seam. Binds
+        an :class:`~figureflow.transport.anywidget_adapter.AnywidgetAdapter` to
+        this ``Flow`` and returns ``self``. Since ``Flow`` *is* the ``AnyWidget``,
+        the v1 auto-render path (``_repr_mimebundle_`` on a cell's last line) is
+        unchanged and the live data flow runs through the JS half of the seam
+        (renderer → JS ``Transport`` → anywidget JS adapter → ``model``); the
+        bound Python adapter is its trait-side counterpart.
+
+        Returns:
+            ``self`` — the widget to render.
         """
+        from figureflow.transport.anywidget_adapter import AnywidgetAdapter
+
+        if self._transport is None:
+            self._transport = AnywidgetAdapter()
+            self._transport.bind(self)
         return self
 
     def to_html(self, path: Optional[str] = None, *, title: Optional[str] = None) -> str:
@@ -400,11 +416,15 @@ class Flow(anywidget.AnyWidget):
 
         Returns:
             The self-contained HTML string.
-
-        Raises:
-            NotImplementedError: Always — implemented in ITER_V2_02.
         """
-        raise NotImplementedError("Flow.to_html is implemented in ITER_V2_02")
+        from figureflow.transport.static_export import StaticExportAdapter
+
+        adapter = StaticExportAdapter()
+        adapter.bind(self)
+        html_str = adapter.render_html(self, title=title)
+        if path is not None:
+            pathlib.Path(path).write_text(html_str, encoding="utf-8")
+        return html_str
 
     def serve(
         self,
@@ -426,19 +446,27 @@ class Flow(anywidget.AnyWidget):
 
         Returns:
             The served URL.
-
-        Raises:
-            NotImplementedError: Always — implemented in ITER_V2_03.
         """
-        raise NotImplementedError("Flow.serve is implemented in ITER_V2_03")
+        from figureflow.transport.server_adapter import ServerAdapter
+
+        # A second serve() stops the prior server first.
+        if isinstance(self._transport, ServerAdapter):
+            self._transport.stop()
+        adapter = ServerAdapter(
+            host, port, open_browser=open_browser, block=block
+        )
+        adapter.bind(self)
+        self._transport = adapter
+        adapter.start()
+        return adapter.url
 
     def stop(self) -> None:
-        """Stop a running ``serve()`` server.
+        """Stop a running ``serve()`` server (no-op if none is running)."""
+        from figureflow.transport.server_adapter import ServerAdapter
 
-        Raises:
-            NotImplementedError: Always — implemented in ITER_V2_03.
-        """
-        raise NotImplementedError("Flow.stop is implemented in ITER_V2_03")
+        if isinstance(self._transport, ServerAdapter):
+            self._transport.stop()
+            self._transport = None
 
     _BUILTIN_NODE_TYPES = frozenset({"shape", "group"})
     _BUILTIN_EDGE_TYPES = frozenset({"default", "straight", "step", "smoothstep"})

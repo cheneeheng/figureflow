@@ -354,42 +354,152 @@ class TestToMermaid:
         assert "my_node" in to_mermaid(flow)
 
 
-# ─── v2 transport seam (SKELETON_V2) ─────────────────────────────────────────
-
-class TestTransportSeam:
-    def test_display_returns_self(self):
-        flow = Flow()
-        assert flow.display() is flow
-
-    def test_to_html_gated_to_iteration(self):
-        with pytest.raises(NotImplementedError, match="ITER_V2_02"):
-            Flow().to_html()
-
-    def test_serve_gated_to_iteration(self):
-        with pytest.raises(NotImplementedError, match="ITER_V2_03"):
-            Flow().serve()
-
-    def test_stop_gated_to_iteration(self):
-        with pytest.raises(NotImplementedError, match="ITER_V2_03"):
-            Flow().stop()
-
+# ─── v2 transport seam — sync-core (ITER_V2_01 §04) ──────────────────────────
 
 class TestSyncCore:
-    def test_diff_gated_to_iteration(self):
+    def test_diff_initial_push_includes_present_keys(self):
         from figureflow import synccore
-        with pytest.raises(NotImplementedError, match="ITER_V2_01"):
-            synccore.diff(None, {})
+        assert synccore.diff(None, {"nodes": [1], "edges": []}) == {
+            "nodes": [1],
+            "edges": [],
+        }
 
-    def test_is_echo_gated_to_iteration(self):
+    def test_diff_none_when_unchanged(self):
         from figureflow import synccore
-        with pytest.raises(NotImplementedError, match="ITER_V2_01"):
-            synccore.is_echo({}, None)
+        state = {"nodes": [1], "edges": [2], "meta": {"height": 480}}
+        assert synccore.diff(state, state) is None
+
+    def test_diff_only_changed_keys(self):
+        from figureflow import synccore
+        prev = {"nodes": [1], "edges": [2]}
+        assert synccore.diff(prev, {"nodes": [9], "edges": [2]}) == {"nodes": [9]}
+
+    def test_diff_includes_meta_change(self):
+        from figureflow import synccore
+        prev = {"nodes": [], "edges": [], "meta": {"height": 480}}
+        nxt = {"nodes": [], "edges": [], "meta": {"height": 600}}
+        assert synccore.diff(prev, nxt) == {"meta": {"height": 600}}
+
+    def test_is_echo_true_when_graph_matches(self):
+        from figureflow import synccore
+        pushed = {"nodes": [1], "edges": [2]}
+        assert synccore.is_echo({"nodes": [1], "edges": [2]}, pushed) is True
+
+    def test_is_echo_false_on_real_edit(self):
+        from figureflow import synccore
+        pushed = {"nodes": [1], "edges": [2]}
+        assert synccore.is_echo({"nodes": [9], "edges": [2]}, pushed) is False
+
+    def test_is_echo_false_when_nothing_pushed(self):
+        from figureflow import synccore
+        assert synccore.is_echo({"nodes": [1]}, None) is False
 
     def test_lock_present(self):
         import threading
         from figureflow import synccore
-        # The shared mutate-then-snapshot lock the server adapter will hold.
+        # The shared mutate-then-snapshot lock the server adapter holds.
         assert isinstance(synccore.LOCK, type(threading.Lock()))
+
+
+# ─── v2 transport seam — adapters (ITER_V2_01–03) ────────────────────────────
+
+class TestDisplayAdapter:
+    def test_display_returns_self(self):
+        flow = Flow()
+        assert flow.display() is flow
+
+    def test_display_binds_anywidget_adapter(self):
+        from figureflow.transport.anywidget_adapter import AnywidgetAdapter
+
+        flow = Flow().display()
+        assert isinstance(flow._transport, AnywidgetAdapter)
+
+
+class TestStaticExport:
+    def _flow(self):
+        return Flow([Node("a", pos=(0, 0)), Node("b", pos=(10, 10))])
+
+    def test_to_html_returns_self_contained_string(self):
+        html = self._flow().to_html()
+        # Inlined assets + JSON data island + static adapter bootstrap.
+        assert "<style>" in html
+        assert 'id="figureflow-state"' in html
+        assert "createStaticTransport" in html
+
+    def test_to_html_embeds_serialized_state(self):
+        html = self._flow().to_html()
+        assert '"schema": "figureflow/1"' in html or '"schema":"figureflow/1"' in html
+
+    def test_to_html_writes_file_and_returns_string(self, tmp_path):
+        out = tmp_path / "diagram.html"
+        ret = self._flow().to_html(str(out))
+        assert out.read_text(encoding="utf-8") == ret
+
+    def test_to_html_title(self):
+        html = Flow().to_html(title="My Diagram")
+        assert "<title>My Diagram</title>" in html
+
+
+class TestServe:
+    def _get(self, url, timeout=5):
+        import urllib.request
+
+        return urllib.request.urlopen(url, timeout=timeout)
+
+    def test_serve_lifecycle_and_routes(self):
+        import urllib.request
+
+        flow = Flow([Node("a", pos=(0, 0))])
+        url = flow.serve(open_browser=False)
+        try:
+            assert url.startswith("http://127.0.0.1:")
+            state = json.loads(self._get(url + "/state").read())
+            assert state["schema"] == "figureflow/1"
+            assert [n["id"] for n in state["nodes"]] == ["a"]
+
+            page = self._get(url + "/").read().decode()
+            assert "createServerTransport" in page
+
+            js = self._get(url + "/widget.js")
+            assert js.headers["Content-Type"] == "text/javascript"
+        finally:
+            flow.stop()
+        assert flow._transport is None
+
+    def test_post_change_commits_through_to_flow(self):
+        import urllib.request
+
+        flow = Flow([Node("a", pos=(0, 0))])
+        url = flow.serve(open_browser=False)
+        try:
+            body = json.dumps(
+                {"nodes": [{"id": "a", "position": {"x": 42, "y": 7}, "data": {}}]}
+            ).encode()
+            req = urllib.request.Request(
+                url + "/change",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            resp = urllib.request.urlopen(req, timeout=5)
+            assert resp.status == 204
+            assert flow.positions()["a"] == (42, 7)
+        finally:
+            flow.stop()
+
+    def test_second_serve_rebinds(self):
+        flow = Flow([Node("a")])
+        url1 = flow.serve(open_browser=False)
+        url2 = flow.serve(open_browser=False)
+        try:
+            assert url1 != url2  # prior server stopped, new ephemeral port
+        finally:
+            flow.stop()
+
+    def test_stop_is_idempotent(self):
+        flow = Flow()
+        flow.stop()  # no server running — no error
+        assert flow._transport is None
 
 
 class TestTransportContract:
@@ -426,17 +536,30 @@ class TestTransportContract:
         for cls in (AnywidgetAdapter, StaticExportAdapter, ServerAdapter):
             assert issubclass(cls, Transport)
 
-    def test_anywidget_adapter_gated(self):
+    def test_anywidget_adapter_binds(self):
         from figureflow.transport.anywidget_adapter import AnywidgetAdapter
-        with pytest.raises(NotImplementedError, match="ITER_V2_01"):
-            AnywidgetAdapter().bind(Flow())
 
-    def test_static_adapter_gated(self):
+        flow = Flow()
+        adapter = AnywidgetAdapter()
+        adapter.bind(flow)
+        # send_state writes the synced traits (the v1 sync write).
+        adapter.send_state(
+            [{"id": "x", "position": {"x": 0, "y": 0}, "data": {}}],
+            [],
+            {"height": 600},
+        )
+        assert [n["id"] for n in flow.nodes] == ["x"]
+        assert flow.height == 600
+
+    def test_static_adapter_renders_html(self):
         from figureflow.transport.static_export import StaticExportAdapter
-        with pytest.raises(NotImplementedError, match="ITER_V2_02"):
-            StaticExportAdapter().render_html(Flow())
 
-    def test_server_adapter_gated(self):
+        html = StaticExportAdapter().render_html(Flow())
+        assert 'id="figureflow-state"' in html
+
+    def test_server_adapter_requires_bind(self):
         from figureflow.transport.server_adapter import ServerAdapter
-        with pytest.raises(NotImplementedError, match="ITER_V2_03"):
+
+        # start() before bind() is a usage error, not a silent no-op.
+        with pytest.raises(RuntimeError, match="bind"):
             ServerAdapter().start()

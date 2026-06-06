@@ -1,5 +1,20 @@
 # Decision Log
 
+### Entry 005
+
+**Type:** Decision
+**Mode:** Autonomous
+**Timestamp:** 2026-06-06T00:00:00Z
+**Task:** Implement the v2 iter plans (ITER_V2_01–03) on branch feat/v2-transport-adapters — fill the seam scaffolded in Entry 004.
+
+**Context:** Three forks the plans left unresolved. (1) Server concurrency: SKELETON_V2/ITER_V2_03 mandate one `threading.Lock` around mutate-then-snapshot, but the trait observer that broadcasts SSE fires *synchronously inside* the lock-held mutation, so a non-reentrant `Lock` re-acquired by the observer would deadlock. (2) `flow.layout()` over `serve()`: v1 runs dagre client-side via the `_layout_request` trait; the server has no trait sync to the browser, and ITER_V2_03 §05 lists only state/echo handling, not how Python-side layout reaches the browser. (3) Version: SKELETON_V2 frontmatter says "Publishable as v0.2," but the repo shipped v1.0.0 (Entry 004 predates that tag's framing).
+
+**Decision:** (1) The broadcast observer does NOT acquire `synccore.LOCK`; `handle_change` holds the lock around a `hold_trait_notifications()` batch (so observers see the final state once, no intermediate push) and reuses `synccore.is_echo` against `_last_from_client` to drop the origin client's own edit. The lock still serializes concurrent POSTs (its stated job); observer reads are atomic list rebinds. (2) The server adapter observes `_layout_request` and forwards it as an SSE `{kind:"event", name:"layout"}` message; the browser's existing `onEvent("layout")` runs dagre and POSTs the arranged nodes back — matching notebook semantics with no server-specific layout logic. (3) Did NOT bump the version or tag a release — releasing is a separate, explicitly-requested action; the request was "implement the plans."
+
+**Impact / Risk:** (1) Reentrancy-safe and race-safe for the single-user localhost MVP; a pathological case where Python sets state exactly equal to the last client edit would be suppressed (acceptable at this scale, documented in code). (2) Adds a typed SSE message envelope (`kind: "state" | "event"`) the server JS adapter fans out; static/anywidget adapters are unaffected. (3) `pyproject.toml` stays at 1.0.0 — a follow-up `release` (minor bump to 1.1.0, additive `display/to_html/serve/stop`) is left to the user.
+
+**Outcome:** All three adapters implemented (Python + JS), bundle rebuilt, 68 tests pass (incl. live serve()/POST/SSE/echo round-trips). Docs (README, guide, reference, examples, CLAUDE.md) updated since the methods are now functional.
+
 ### Entry 004
 
 **Type:** Decision
