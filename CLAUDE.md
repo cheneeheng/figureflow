@@ -14,12 +14,14 @@ The front-end is a **prebuilt, vendored bundle**: React + @xyflow/react (+ its C
 bundled into `src/figureflow/static/widget.js`, which ships in the wheel. End users never
 run a JS toolchain and the widget works offline (no CDN).
 
-Status: **v1.0.0 — full MVP implemented.** ITER_01–ITER_06 all landed: per-element node
-shapes/styling (+ L1 `svg_path`, L2 `html`), edge styling at parity, multi-select +
-within-canvas styled copy/paste, minimap, canvas undo/redo, grouping, dagre auto-layout,
-JSON save/load + mermaid export, and the L3 custom-component escape hatch (`emit`/`on`).
-No `NotImplementedError` stubs remain; `docs/planning/` is now the historical record of
-how the surface was filled in.
+Status: **v1 MVP + v2 multi-transport, both implemented.** ITER_01–ITER_06 landed the v1
+surface: per-element node shapes/styling (+ L1 `svg_path`, L2 `html`), edge styling at parity,
+multi-select + within-canvas styled copy/paste, minimap, canvas undo/redo, grouping, dagre
+auto-layout, JSON save/load + mermaid export, and the L3 custom-component escape hatch
+(`emit`/`on`). SKELETON_V2 + ITER_V2_01–03 then added the **transport seam**: one renderer
+behind three doors — `display()` (notebook), `to_html()` (offline interactive snapshot), and
+`serve()`/`stop()` (live browser tab over a dependency-free stdlib SSE+POST server). No
+`NotImplementedError` stubs remain; `docs/planning/` is the historical record.
 
 ## Layout
 
@@ -27,18 +29,27 @@ how the surface was filled in.
 pyproject.toml            # hatchling, src-layout; force-includes static/ into the wheel
 package.json              # MAINTAINER-ONLY front-end build (esbuild + react + @xyflow/react)
 bun.lock                  # committed for reproducible builds
-js/index.js               # front-end source (bundled → static/widget.js)
+js/index.js               # front-end source — renderer + mount (bundled → static/widget.js)
+js/synccore.js            # shared JS sync-core (echo-guard), above the adapter fork
+js/adapters/              # JS Transport adapters: anywidget.js, static.js, server.js
 src/figureflow/
-  __init__.py             # Shape, Node, Edge, Flow, _BASELINE
-  serialize.py            # to_json / from_json / to_mermaid
+  __init__.py             # Shape, Node, Edge, Flow, _BASELINE; display/to_html/serve/stop
+  serialize.py            # to_json / from_json / to_mermaid (the shared wire format)
+  synccore.py             # v2 — diff + is_echo + LOCK, shared by every adapter
+  transport/              # v2 transport seam (Python side)
+    base.py               # Transport ABC: bind/send_state/on_change/emit/start/stop
+    anywidget_adapter.py  # notebook (ITER_V2_01)
+    static_export.py      # to_html() + shared host-page renderer (ITER_V2_02)
+    server_adapter.py     # ThreadingHTTPServer SSE+POST (ITER_V2_03)
   static/
     widget.js             # PREBUILT esbuild bundle (checked in)
     widget.css            # container sizing only (xyflow CSS is bundled into widget.js)
+    host.html             # shared host-page template (static export + server)
     figureflow.d.ts       # L3 custom-component typings (ships in the wheel)
-examples/                 # runnable examples (quickstart, grouping_layout, serialization, custom_component)
-tests/                    # pytest suite (to_dict, positions, group, JSON round-trip, mermaid)
-docs/guide/               # end-user manual (getting started → custom components)
-docs/planning/            # SKELETON.md (authoritative) + ITER_01..06.md (iterations)
+examples/                 # runnable examples (quickstart, grouping_layout, serialization, custom_component, display_targets)
+tests/                    # pytest suite (to_dict, positions, group, JSON round-trip, mermaid, transport seam)
+docs/guide/               # end-user manual (getting started → display anywhere → custom components)
+docs/planning/            # v1: SKELETON.md + ITER_01..06.md; v2: SKELETON_V2.md + ITER_V2_01..03.md
 ```
 
 ## Commands

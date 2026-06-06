@@ -4,12 +4,8 @@ In v1 the "what changed → what to push" diff and the echo-guard (a state we ju
 pushed down must not bounce back up as a fresh edit) lived inline in the
 anywidget JS. v2 lifts the Python half of that logic here so every transport
 adapter (anywidget / static / server) inherits identical behavior instead of
-re-deriving it three times with subtle drift (SKELETON_V2 §02, §04).
-
-Skeleton state: the functions are present and honestly gated — they raise
-``NotImplementedError`` naming the iteration that fills them in (ITER_V2_01),
-matching the v1 stub pattern. The JS twin of this guard lives in the bundle
-(SKELETON_V2 §05).
+re-deriving it three times with subtle drift (SKELETON_V2 §02, §04). The JS twin
+of this guard lives in the bundle (SKELETON_V2 §05).
 """
 
 from __future__ import annotations
@@ -29,6 +25,12 @@ State = Dict[str, Any]
 Patch = Dict[str, Any]
 
 
+# The graph-bearing keys a patch carries. ``meta`` (flow-level settings) is
+# diffed too, but only ``nodes``/``edges`` participate in the echo comparison —
+# they are the channel a browser edit can bounce back on.
+_GRAPH_KEYS = ("nodes", "edges")
+
+
 def diff(prev: Optional[State], next: State) -> Optional[Patch]:
     """Compute what to push down, or ``None`` when nothing changed.
 
@@ -37,13 +39,18 @@ def diff(prev: Optional[State], next: State) -> Optional[Patch]:
         next: The current canonical state.
 
     Returns:
-        A patch describing the change, or ``None`` if ``prev`` and ``next`` are
-        equivalent so adapters can skip an empty push.
-
-    Raises:
-        NotImplementedError: Always — implemented in ITER_V2_01.
+        A patch carrying only the changed ``nodes``/``edges``/``meta`` keys, or
+        ``None`` if ``prev`` and ``next`` are equivalent so adapters can skip an
+        empty push. On the initial push (``prev`` is ``None``) every present key
+        is included.
     """
-    raise NotImplementedError("figureflow.synccore.diff is implemented in ITER_V2_01")
+    patch: Patch = {}
+    for key in (*_GRAPH_KEYS, "meta"):
+        if key not in next:
+            continue
+        if prev is None or prev.get(key) != next.get(key):
+            patch[key] = next[key]
+    return patch or None
 
 
 def is_echo(incoming: State, last_pushed: Optional[State]) -> bool:
@@ -58,12 +65,12 @@ def is_echo(incoming: State, last_pushed: Optional[State]) -> bool:
         last_pushed: The most recent state this adapter pushed down, if any.
 
     Returns:
-        ``True`` if ``incoming`` is an echo of ``last_pushed`` and should be
-        ignored; ``False`` if it is a genuine new edit to commit.
-
-    Raises:
-        NotImplementedError: Always — implemented in ITER_V2_01.
+        ``True`` if ``incoming``'s graph (``nodes``/``edges``) equals
+        ``last_pushed``'s and should be ignored; ``False`` if it is a genuine new
+        edit to commit (or there is nothing yet pushed to echo).
     """
-    raise NotImplementedError(
-        "figureflow.synccore.is_echo is implemented in ITER_V2_01"
+    if last_pushed is None:
+        return False
+    return all(
+        incoming.get(key) == last_pushed.get(key) for key in _GRAPH_KEYS
     )

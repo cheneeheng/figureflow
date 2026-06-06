@@ -354,42 +354,152 @@ class TestToMermaid:
         assert "my_node" in to_mermaid(flow)
 
 
-# ─── v2 transport seam (SKELETON_V2) ─────────────────────────────────────────
-
-class TestTransportSeam:
-    def test_display_returns_self(self):
-        flow = Flow()
-        assert flow.display() is flow
-
-    def test_to_html_gated_to_iteration(self):
-        with pytest.raises(NotImplementedError, match="ITER_V2_02"):
-            Flow().to_html()
-
-    def test_serve_gated_to_iteration(self):
-        with pytest.raises(NotImplementedError, match="ITER_V2_03"):
-            Flow().serve()
-
-    def test_stop_gated_to_iteration(self):
-        with pytest.raises(NotImplementedError, match="ITER_V2_03"):
-            Flow().stop()
-
+# ─── v2 transport seam — sync-core (ITER_V2_01 §04) ──────────────────────────
 
 class TestSyncCore:
-    def test_diff_gated_to_iteration(self):
+    def test_diff_initial_push_includes_present_keys(self):
         from figureflow import synccore
-        with pytest.raises(NotImplementedError, match="ITER_V2_01"):
-            synccore.diff(None, {})
+        assert synccore.diff(None, {"nodes": [1], "edges": []}) == {
+            "nodes": [1],
+            "edges": [],
+        }
 
-    def test_is_echo_gated_to_iteration(self):
+    def test_diff_none_when_unchanged(self):
         from figureflow import synccore
-        with pytest.raises(NotImplementedError, match="ITER_V2_01"):
-            synccore.is_echo({}, None)
+        state = {"nodes": [1], "edges": [2], "meta": {"height": 480}}
+        assert synccore.diff(state, state) is None
+
+    def test_diff_only_changed_keys(self):
+        from figureflow import synccore
+        prev = {"nodes": [1], "edges": [2]}
+        assert synccore.diff(prev, {"nodes": [9], "edges": [2]}) == {"nodes": [9]}
+
+    def test_diff_includes_meta_change(self):
+        from figureflow import synccore
+        prev = {"nodes": [], "edges": [], "meta": {"height": 480}}
+        nxt = {"nodes": [], "edges": [], "meta": {"height": 600}}
+        assert synccore.diff(prev, nxt) == {"meta": {"height": 600}}
+
+    def test_is_echo_true_when_graph_matches(self):
+        from figureflow import synccore
+        pushed = {"nodes": [1], "edges": [2]}
+        assert synccore.is_echo({"nodes": [1], "edges": [2]}, pushed) is True
+
+    def test_is_echo_false_on_real_edit(self):
+        from figureflow import synccore
+        pushed = {"nodes": [1], "edges": [2]}
+        assert synccore.is_echo({"nodes": [9], "edges": [2]}, pushed) is False
+
+    def test_is_echo_false_when_nothing_pushed(self):
+        from figureflow import synccore
+        assert synccore.is_echo({"nodes": [1]}, None) is False
 
     def test_lock_present(self):
         import threading
         from figureflow import synccore
-        # The shared mutate-then-snapshot lock the server adapter will hold.
+        # The shared mutate-then-snapshot lock the server adapter holds.
         assert isinstance(synccore.LOCK, type(threading.Lock()))
+
+
+# ─── v2 transport seam — adapters (ITER_V2_01–03) ────────────────────────────
+
+class TestDisplayAdapter:
+    def test_display_returns_self(self):
+        flow = Flow()
+        assert flow.display() is flow
+
+    def test_display_binds_anywidget_adapter(self):
+        from figureflow.transport.anywidget_adapter import AnywidgetAdapter
+
+        flow = Flow().display()
+        assert isinstance(flow._transport, AnywidgetAdapter)
+
+
+class TestStaticExport:
+    def _flow(self):
+        return Flow([Node("a", pos=(0, 0)), Node("b", pos=(10, 10))])
+
+    def test_to_html_returns_self_contained_string(self):
+        html = self._flow().to_html()
+        # Inlined assets + JSON data island + static adapter bootstrap.
+        assert "<style>" in html
+        assert 'id="figureflow-state"' in html
+        assert "createStaticTransport" in html
+
+    def test_to_html_embeds_serialized_state(self):
+        html = self._flow().to_html()
+        assert '"schema": "figureflow/1"' in html or '"schema":"figureflow/1"' in html
+
+    def test_to_html_writes_file_and_returns_string(self, tmp_path):
+        out = tmp_path / "diagram.html"
+        ret = self._flow().to_html(str(out))
+        assert out.read_text(encoding="utf-8") == ret
+
+    def test_to_html_title(self):
+        html = Flow().to_html(title="My Diagram")
+        assert "<title>My Diagram</title>" in html
+
+
+class TestServe:
+    def _get(self, url, timeout=5):
+        import urllib.request
+
+        return urllib.request.urlopen(url, timeout=timeout)
+
+    def test_serve_lifecycle_and_routes(self):
+        import urllib.request
+
+        flow = Flow([Node("a", pos=(0, 0))])
+        url = flow.serve(open_browser=False)
+        try:
+            assert url.startswith("http://127.0.0.1:")
+            state = json.loads(self._get(url + "/state").read())
+            assert state["schema"] == "figureflow/1"
+            assert [n["id"] for n in state["nodes"]] == ["a"]
+
+            page = self._get(url + "/").read().decode()
+            assert "createServerTransport" in page
+
+            js = self._get(url + "/widget.js")
+            assert js.headers["Content-Type"] == "text/javascript"
+        finally:
+            flow.stop()
+        assert flow._transport is None
+
+    def test_post_change_commits_through_to_flow(self):
+        import urllib.request
+
+        flow = Flow([Node("a", pos=(0, 0))])
+        url = flow.serve(open_browser=False)
+        try:
+            body = json.dumps(
+                {"nodes": [{"id": "a", "position": {"x": 42, "y": 7}, "data": {}}]}
+            ).encode()
+            req = urllib.request.Request(
+                url + "/change",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            resp = urllib.request.urlopen(req, timeout=5)
+            assert resp.status == 204
+            assert flow.positions()["a"] == (42, 7)
+        finally:
+            flow.stop()
+
+    def test_second_serve_rebinds(self):
+        flow = Flow([Node("a")])
+        url1 = flow.serve(open_browser=False)
+        url2 = flow.serve(open_browser=False)
+        try:
+            assert url1 != url2  # prior server stopped, new ephemeral port
+        finally:
+            flow.stop()
+
+    def test_stop_is_idempotent(self):
+        flow = Flow()
+        flow.stop()  # no server running — no error
+        assert flow._transport is None
 
 
 class TestTransportContract:
@@ -426,17 +536,527 @@ class TestTransportContract:
         for cls in (AnywidgetAdapter, StaticExportAdapter, ServerAdapter):
             assert issubclass(cls, Transport)
 
-    def test_anywidget_adapter_gated(self):
+    def test_anywidget_adapter_binds(self):
         from figureflow.transport.anywidget_adapter import AnywidgetAdapter
-        with pytest.raises(NotImplementedError, match="ITER_V2_01"):
-            AnywidgetAdapter().bind(Flow())
 
-    def test_static_adapter_gated(self):
+        flow = Flow()
+        adapter = AnywidgetAdapter()
+        adapter.bind(flow)
+        # send_state writes the synced traits (the v1 sync write).
+        adapter.send_state(
+            [{"id": "x", "position": {"x": 0, "y": 0}, "data": {}}],
+            [],
+            {"height": 600},
+        )
+        assert [n["id"] for n in flow.nodes] == ["x"]
+        assert flow.height == 600
+
+    def test_static_adapter_renders_html(self):
         from figureflow.transport.static_export import StaticExportAdapter
-        with pytest.raises(NotImplementedError, match="ITER_V2_02"):
-            StaticExportAdapter().render_html(Flow())
 
-    def test_server_adapter_gated(self):
+        html = StaticExportAdapter().render_html(Flow())
+        assert 'id="figureflow-state"' in html
+
+    def test_server_adapter_requires_bind(self):
         from figureflow.transport.server_adapter import ServerAdapter
-        with pytest.raises(NotImplementedError, match="ITER_V2_03"):
+
+        # start() before bind() is a usage error, not a silent no-op.
+        with pytest.raises(RuntimeError, match="bind"):
             ServerAdapter().start()
+
+
+# ─── Flow public methods (add_edge / undo / redo / layout / json / mermaid) ───
+
+class TestFlowMethods:
+    def test_add_edge(self):
+        flow = Flow([Node("a"), Node("b")])
+        flow.add_edge(Edge("a", "b"))
+        assert flow.edges[0]["id"] == "a->b"
+
+    def test_undo_redo_safe_without_comm(self):
+        # undo()/redo() send a custom message; without an open comm it is a no-op.
+        flow = Flow([Node("a")])
+        flow.undo()
+        flow.redo()
+
+    def test_layout_sets_request(self):
+        flow = Flow([Node("a")])
+        flow.layout(direction="LR", spacing=10)
+        req = flow._layout_request
+        assert req["algo"] == "dagre"
+        assert req["direction"] == "LR"
+        assert req["opts"] == {"spacing": 10}
+        assert "nonce" in req
+
+    def test_layout_default_direction(self):
+        flow = Flow([Node("a")])
+        flow.layout()
+        assert flow._layout_request["direction"] == "TB"
+
+    def test_layout_rejects_unknown_algo(self):
+        with pytest.raises(ValueError, match="dagre"):
+            Flow().layout(algo="force")
+
+    def test_layout_rejects_bad_direction(self):
+        with pytest.raises(ValueError, match="direction"):
+            Flow().layout(direction="XY")
+
+    def test_to_json_method(self):
+        flow = Flow([Node("a")])
+        data = json.loads(flow.to_json())
+        assert data["schema"] == "figureflow/1"
+        assert [n["id"] for n in data["nodes"]] == ["a"]
+
+    def test_from_json_classmethod(self):
+        flow = Flow([Node("a")])
+        flow2 = Flow.from_json(flow.to_json())
+        assert isinstance(flow2, Flow)
+        assert [n["id"] for n in flow2.nodes] == ["a"]
+
+    def test_to_mermaid_method(self):
+        m = Flow([Node("a")]).to_mermaid(direction="LR")
+        assert "flowchart LR" in m
+
+
+# ─── L3 registries + on() event machinery ────────────────────────────────────
+
+class TestRegistries:
+    def test_register_node_type(self):
+        flow = Flow()
+        flow.register_node_type("mynode", "./m.js")
+        assert flow._node_modules["mynode"] == "./m.js"
+
+    def test_register_node_type_empty_name(self):
+        with pytest.raises(ValueError, match="identifier"):
+            Flow().register_node_type("", "x")
+
+    def test_register_node_type_invalid_name(self):
+        with pytest.raises(ValueError, match="identifier"):
+            Flow().register_node_type("bad name", "x")
+
+    def test_register_node_type_builtin_collision(self):
+        with pytest.raises(ValueError, match="built-in"):
+            Flow().register_node_type("shape", "x")
+
+    def test_register_edge_type(self):
+        flow = Flow()
+        flow.register_edge_type("myedge", "./e.js")
+        assert flow._edge_modules["myedge"] == "./e.js"
+
+    def test_register_edge_type_invalid_name(self):
+        with pytest.raises(ValueError, match="identifier"):
+            Flow().register_edge_type("1bad", "x")
+
+    def test_register_edge_type_builtin_collision(self):
+        with pytest.raises(ValueError, match="built-in"):
+            Flow().register_edge_type("straight", "x")
+
+
+class TestOnEvent:
+    def test_on_dispatches_payload(self):
+        flow = Flow()
+        got = []
+        flow.on("evt", lambda p: got.append(p))
+        flow._msg_callbacks(flow, {"event": "evt", "payload": 7}, [])
+        assert got == [7]
+
+    def test_unsubscribe_stops_delivery_and_is_idempotent(self):
+        flow = Flow()
+        got = []
+        unsub = flow.on("evt", lambda p: got.append(p))
+        unsub()
+        unsub()  # second call: callback already removed, no error
+        flow._msg_callbacks(flow, {"event": "evt", "payload": 8}, [])
+        assert got == []
+
+    def test_non_dict_content_ignored(self):
+        flow = Flow()
+        got = []
+        flow.on("evt", lambda p: got.append(p))
+        flow._msg_callbacks(flow, "not-a-dict", [])
+        assert got == []
+
+    def test_unknown_event_ignored(self):
+        flow = Flow()
+        got = []
+        flow.on("evt", lambda p: got.append(p))
+        flow._msg_callbacks(flow, {"event": "other", "payload": 1}, [])
+        assert got == []
+
+    def test_ensure_msg_listener_idempotent(self):
+        flow = Flow()
+        flow.on("a", lambda p: None)
+        flow.on("b", lambda p: None)  # second on(): listener already active
+        assert flow._msg_listener_active is True
+
+
+# ─── Anywidget adapter (full coverage) ───────────────────────────────────────
+
+class TestAnywidgetAdapterFull:
+    def _adapter(self, flow):
+        from figureflow.transport.anywidget_adapter import AnywidgetAdapter
+
+        a = AnywidgetAdapter()
+        a.bind(flow)
+        return a
+
+    def test_send_state_applies_meta(self):
+        flow = Flow()
+        a = self._adapter(flow)
+        a.send_state([], [], {"color_mode": "dark", "fit_view": False, "height": 700})
+        assert flow.color_mode == "dark"
+        assert flow.fit_view is False
+        assert flow.height == 700
+
+    def test_on_change_drops_echo_reports_real(self):
+        flow = Flow()
+        a = self._adapter(flow)
+        seen = []
+        a.on_change(lambda s: seen.append(s))
+
+        real = [{"id": "a", "position": {"x": 0, "y": 0}, "data": {}}]
+        flow.nodes = real  # genuine edit (last_pushed is None) → reported
+        assert len(seen) == 1
+
+        echoed = [{"id": "b", "position": {"x": 1, "y": 1}, "data": {}}]
+        a._last_pushed = {"nodes": echoed, "edges": []}
+        flow.nodes = echoed  # mirrors our last push → dropped
+        assert len(seen) == 1
+
+    def test_emit_safe_without_comm(self):
+        flow = Flow()
+        a = self._adapter(flow)
+        a.emit("evt", {"x": 1})  # no comm → safe no-op
+
+    def test_require_flow_before_bind(self):
+        from figureflow.transport.anywidget_adapter import AnywidgetAdapter
+
+        with pytest.raises(RuntimeError, match="bind"):
+            AnywidgetAdapter().send_state([], [], {})
+
+
+# ─── Static export adapter — the seam no-ops ──────────────────────────────────
+
+class TestStaticExportNoops:
+    def test_live_channel_methods_are_noops(self):
+        from figureflow.transport.static_export import StaticExportAdapter
+
+        a = StaticExportAdapter()
+        a.bind(Flow())
+        assert a.send_state([], [], {}) is None
+        assert a.on_change(lambda s: None) is None
+        assert a.emit("e", None) is None
+
+
+# ─── Server adapter — direct unit coverage (no HTTP) ─────────────────────────
+
+class TestServerAdapterUnit:
+    def _adapter(self, flow):
+        from figureflow.transport.server_adapter import ServerAdapter
+
+        a = ServerAdapter(open_browser=False)
+        a.bind(flow)
+        return a
+
+    def test_stop_without_start_returns(self):
+        a = self._adapter(Flow())
+        assert a.stop() is None  # _httpd is None → early return
+
+    def test_send_state_broadcasts_to_streams(self):
+        a = self._adapter(Flow())
+        q = a.register_stream()
+        a.send_state([{"id": "x"}], [], {})
+        msg = json.loads(q.get_nowait())
+        assert msg["kind"] == "state"
+        assert msg["nodes"] == [{"id": "x"}]
+
+    def test_on_change_handler_and_emit_broadcast(self):
+        a = self._adapter(Flow())
+        a.on_change(lambda s: None)  # registers handler
+        q = a.register_stream()
+        a.emit("hello", {"v": 1})
+        msg = json.loads(q.get_nowait())
+        assert msg["kind"] == "event"
+        assert msg["name"] == "hello"
+        assert msg["payload"] == {"v": 1}
+
+    def test_handle_change_event_op_dispatches(self):
+        flow = Flow()
+        got = []
+        flow.on("ev", lambda p: got.append(p))
+        a = self._adapter(flow)
+        a.handle_change({"op": "event", "name": "ev", "payload": 99})
+        assert got == [99]
+
+    def test_handle_change_writes_graph_and_calls_handler(self):
+        flow = Flow([Node("a")])
+        a = self._adapter(flow)
+        seen = []
+        a.on_change(lambda s: seen.append(s))
+        a.handle_change(
+            {
+                "nodes": [{"id": "z", "position": {"x": 0, "y": 0}, "data": {}}],
+                "edges": [{"id": "e", "source": "z", "target": "z"}],
+            }
+        )
+        assert [n["id"] for n in flow.nodes] == ["z"]
+        assert [e["id"] for e in flow.edges] == ["e"]
+        assert len(seen) == 1
+
+    def test_handle_change_defaults_to_current_when_keys_missing(self):
+        flow = Flow([Node("a")])
+        a = self._adapter(flow)
+        a.handle_change({})  # no nodes/edges → keep current
+        assert [n["id"] for n in flow.nodes] == ["a"]
+
+    def test_register_and_unregister_stream(self):
+        a = self._adapter(Flow())
+        q = a.register_stream()
+        assert q in a._streams
+        a.unregister_stream(q)
+        assert q not in a._streams
+
+    def test_require_flow_before_bind(self):
+        from figureflow.transport.server_adapter import ServerAdapter
+
+        with pytest.raises(RuntimeError, match="bind"):
+            ServerAdapter().handle_change({"nodes": []})
+
+
+# ─── Server adapter — live lifecycle + HTTP routes ───────────────────────────
+
+class TestServerLive:
+    def test_serve_opens_browser_when_requested(self, monkeypatch):
+        opened = []
+        monkeypatch.setattr("webbrowser.open", lambda u: opened.append(u))
+        flow = Flow()
+        url = flow.serve(open_browser=True)
+        try:
+            assert opened == [url]
+        finally:
+            flow.stop()
+
+    def test_serve_block_joins_until_interrupt(self, monkeypatch):
+        import threading
+
+        calls = {"n": 0}
+        real_join = threading.Thread.join
+
+        def fake_join(self, *a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise KeyboardInterrupt  # the blocking join (Ctrl-C)
+            return real_join(self, *a, **k)
+
+        monkeypatch.setattr(threading.Thread, "join", fake_join)
+        flow = Flow()
+        # block=True → start() joins the server thread, Ctrl-C triggers stop().
+        flow.serve(open_browser=False, block=True)
+        assert flow._transport._httpd is None  # stop() ran
+
+    def test_stop_swallows_already_removed_observer(self):
+        flow = Flow([Node("a")])
+        flow.serve(open_browser=False)
+        adapter = flow._transport
+        fn, names = adapter._observers[0]
+        flow.unobserve(fn, names=names)  # remove out from under stop()
+        flow.stop()  # unobserve(ValueError) is swallowed
+        assert adapter._httpd is None
+
+    def test_stop_sends_sentinel_to_open_streams(self):
+        flow = Flow([Node("a")])
+        flow.serve(open_browser=False)
+        adapter = flow._transport
+        q = adapter.register_stream()
+        flow.stop()
+        assert q.get_nowait() is None  # shutdown sentinel delivered
+
+    def test_layout_request_broadcasts_to_stream(self):
+        flow = Flow([Node("a"), Node("b")])
+        flow.serve(open_browser=False)
+        adapter = flow._transport
+        q = adapter.register_stream()
+        try:
+            flow.layout()  # _layout_request observer → broadcast
+            msg = json.loads(q.get(timeout=2))
+            assert msg["kind"] == "event"
+            assert msg["name"] == "layout"
+        finally:
+            flow.stop()
+
+    def test_python_edit_broadcasts_state(self):
+        flow = Flow([Node("a")])
+        flow.serve(open_browser=False)
+        adapter = flow._transport
+        q = adapter.register_stream()
+        try:
+            flow.add_node(Node("b"))  # non-echo Python edit → _on_state broadcast
+            msg = json.loads(q.get(timeout=2))
+            assert msg["kind"] == "state"
+            assert [n["id"] for n in msg["nodes"]] == ["a", "b"]
+        finally:
+            flow.stop()
+
+    def test_get_unknown_path_404(self):
+        import urllib.error
+        import urllib.request
+
+        flow = Flow([Node("a")])
+        url = flow.serve(open_browser=False)
+        try:
+            with pytest.raises(urllib.error.HTTPError) as ei:
+                urllib.request.urlopen(url + "/nope")
+            assert ei.value.code == 404
+        finally:
+            flow.stop()
+
+    def test_get_widget_css(self):
+        flow = Flow()
+        url = flow.serve(open_browser=False)
+        try:
+            import urllib.request
+
+            resp = urllib.request.urlopen(url + "/widget.css")
+            assert resp.headers["Content-Type"] == "text/css"
+        finally:
+            flow.stop()
+
+    def test_post_wrong_path_404(self):
+        import urllib.error
+        import urllib.request
+
+        flow = Flow()
+        url = flow.serve(open_browser=False)
+        try:
+            req = urllib.request.Request(url + "/wrong", data=b"{}", method="POST")
+            with pytest.raises(urllib.error.HTTPError) as ei:
+                urllib.request.urlopen(req)
+            assert ei.value.code == 404
+        finally:
+            flow.stop()
+
+    def test_post_invalid_json_400(self):
+        import urllib.error
+        import urllib.request
+
+        flow = Flow()
+        url = flow.serve(open_browser=False)
+        try:
+            req = urllib.request.Request(
+                url + "/change",
+                data=b"{bad",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with pytest.raises(urllib.error.HTTPError) as ei:
+                urllib.request.urlopen(req)
+            assert ei.value.code == 400
+        finally:
+            flow.stop()
+
+    def test_sse_stream_delivers_then_closes(self):
+        import threading
+        import time
+        import urllib.request
+
+        flow = Flow([Node("a")])
+        url = flow.serve(open_browser=False)
+        adapter = flow._transport
+        received = []
+
+        def reader():
+            try:
+                resp = urllib.request.urlopen(url + "/events", timeout=10)
+                received.append(resp.readline())  # first "data:" frame
+                resp.read()  # drains until server closes on stop()
+                resp.close()
+            except Exception:  # noqa: BLE001 - connection torn down on stop
+                pass
+
+        t = threading.Thread(target=reader)
+        t.start()
+        # Wait until the SSE handler has registered its stream.
+        deadline = time.time() + 5
+        while not adapter._streams and time.time() < deadline:
+            time.sleep(0.02)
+        flow.add_node(Node("b"))  # non-echo edit → SSE "state" frame
+        deadline = time.time() + 5
+        while not received and time.time() < deadline:
+            time.sleep(0.02)
+        flow.stop()  # sentinel → handler breaks → connection closes
+        t.join(timeout=5)
+        assert received and received[0].startswith(b"data:")
+
+    def test_sse_keepalive_ping(self, monkeypatch):
+        import queue as _queue
+        import threading
+        import urllib.request
+
+        flow = Flow([Node("a")])
+        url = flow.serve(open_browser=False)
+        adapter = flow._transport
+
+        class PingThenSentinel(_queue.Queue):
+            """First get() times out (→ ping), the next returns the sentinel."""
+
+            def __init__(self) -> None:
+                super().__init__()
+                self._n = 0
+
+            def get(self, *a, **k):  # noqa: ANN002, ANN003, ANN201
+                self._n += 1
+                if self._n == 1:
+                    raise _queue.Empty
+                return None
+
+        def fake_register():
+            q = PingThenSentinel()
+            with adapter._streams_lock:
+                adapter._streams.add(q)
+            return q
+
+        monkeypatch.setattr(adapter, "register_stream", fake_register)
+        received = []
+
+        def reader():
+            try:
+                resp = urllib.request.urlopen(url + "/events", timeout=10)
+                received.append(resp.readline())  # ": ping" keepalive comment
+                resp.read()
+                resp.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+        t = threading.Thread(target=reader)
+        t.start()
+        t.join(timeout=10)
+        flow.stop()
+        assert received and received[0].startswith(b": ping")
+
+    def test_sse_handles_client_disconnect(self):
+        import socket
+        import struct
+        import time
+
+        flow = Flow([Node("a")])
+        url = flow.serve(open_browser=False)
+        adapter = flow._transport
+        host, _, port = url.split("//", 1)[1].partition(":")
+
+        sock = socket.create_connection((host, int(port)))
+        # Force an RST on close so the next server write raises ConnectionReset.
+        sock.setsockopt(
+            socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+        )
+        sock.sendall(b"GET /events HTTP/1.1\r\nHost: x\r\n\r\n")
+        time.sleep(0.1)
+        sock.recv(1024)  # consume response headers
+        deadline = time.time() + 5
+        while not adapter._streams and time.time() < deadline:
+            time.sleep(0.02)
+        sock.close()  # abrupt disconnect
+        # A broadcast now writes to a dead socket → BrokenPipe/ConnectionReset.
+        flow.add_node(Node("b"))
+        time.sleep(0.3)
+        flow.stop()
+        assert adapter._httpd is None

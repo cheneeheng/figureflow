@@ -17,10 +17,23 @@ import {
 import dagre from "@dagrejs/dagre";
 import xyflowCss from "@xyflow/react/dist/style.css";
 
+import { createSyncCore } from "./synccore.js";
+import { createAnywidgetTransport } from "./adapters/anywidget.js";
+import { createStaticTransport } from "./adapters/static.js";
+import { createServerTransport } from "./adapters/server.js";
+
 // Expose vendored React + xyflow handles on a well-known global so runtime-
 // loaded L3 custom components can share our React instance (avoids the
-// "two Reacts" invalid-hook-call error).
-globalThis.figureflow = { React, xyflow: { Handle, Position } };
+// "two Reacts" invalid-hook-call error). The transport seam (SKELETON_V2 §05)
+// also publishes `mount` + the non-anywidget adapter factories here so the
+// static-export and server host pages can boot the same bundle.
+globalThis.figureflow = {
+  React,
+  xyflow: { Handle, Position },
+  createStaticTransport,
+  createServerTransport,
+  // `mount` is assigned after App is defined (see bottom of file).
+};
 
 // Inject the vendored xyflow CSS once via a <style> tag.
 function ensureStyle() {
@@ -300,11 +313,13 @@ function pushHistory(histRef, nodesSnapshot, edgesSnapshot) {
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
-function App({ model }) {
-  const [nodes, setNodes] = React.useState(() => model.get("nodes") || []);
-  const [edges, setEdges] = React.useState(() => model.get("edges") || []);
-  // Guard: Python→JS writes must not bounce back as canvas edits.
-  const echoRef = React.useRef(false);
+function App({ transport }) {
+  const initial = React.useRef(transport.getState()).current;
+  const [nodes, setNodes] = React.useState(() => initial.nodes || []);
+  const [edges, setEdges] = React.useState(() => initial.edges || []);
+  const [meta, setMeta] = React.useState(() => initial.meta || {});
+  // Shared sync-core echo-guard: Python→JS pushes must not bounce back as edits.
+  const sync = React.useRef(createSyncCore()).current;
   // Flag to skip recording the next seam commit as a history entry (restore path).
   const skipHistoryRef = React.useRef(false);
   // Undo/redo stacks stored in a ref (not state) to avoid re-renders.
@@ -325,44 +340,35 @@ function App({ model }) {
     [dynTypes.edgeTypes]
   );
 
-  // ── Model → local state sync ──────────────────────────────────────────────
+  // ── Transport → local state sync (push→local; the only echo-guarded path) ──
   React.useEffect(() => {
-    const onNodes = () => {
-      echoRef.current = true;
-      setNodes(model.get("nodes") || []);
-    };
-    const onEdges = () => {
-      echoRef.current = true;
-      setEdges(model.get("edges") || []);
-    };
-    model.on("change:nodes", onNodes);
-    model.on("change:edges", onEdges);
-    return () => {
-      model.off("change:nodes", onNodes);
-      model.off("change:edges", onEdges);
-    };
-  }, [model]);
+    return transport.subscribe((state) => {
+      if (state.nodes !== undefined) {
+        sync.markEcho();
+        setNodes(state.nodes);
+      }
+      if (state.edges !== undefined) {
+        sync.markEcho();
+        setEdges(state.edges);
+      }
+      if (state.meta !== undefined) setMeta(state.meta);
+    });
+  }, [transport, sync]);
 
-  // ── Layout request ────────────────────────────────────────────────────────
+  // ── Layout request (Python pushes a "layout" event; dagre runs client-side) ─
   React.useEffect(() => {
-    const onLayout = () => {
-      const req = model.get("_layout_request");
-      if (!req || !req.nonce) return;
-      // Read current state from the model (always up-to-date; avoids stale
+    return transport.onEvent("layout", (req) => {
+      // Read current state from the transport (always up-to-date; avoids stale
       // closure and the nested-setter anti-pattern).
-      const currentNodes = model.get("nodes") || [];
-      const currentEdges = model.get("edges") || [];
-      const arranged = runDagre(currentNodes, currentEdges, req.direction);
+      const cur = transport.getState();
+      const arranged = runDagre(cur.nodes || [], cur.edges || [], req.direction);
       // Push to history so layout is a single undoable entry (ITER_03 seam).
-      pushHistory(histRef, currentNodes, currentEdges);
-      model.set("nodes", arranged);
-      model.save_changes();
-    };
-    model.on("change:_layout_request", onLayout);
-    return () => model.off("change:_layout_request", onLayout);
-  }, [model]);
+      pushHistory(histRef, cur.nodes || [], cur.edges || []);
+      transport.pushChange({ nodes: arranged });
+    });
+  }, [transport]);
 
-  // ── L3 dynamic module loading ─────────────────────────────────────────────
+  // ── L3 dynamic module loading (keyed off meta module maps) ────────────────
   React.useEffect(() => {
     const loadModules = async (modulesMap, kind) => {
       const loaded = {};
@@ -384,72 +390,56 @@ function App({ model }) {
     };
 
     const reload = async () => {
-      const nodeMods = model.get("_node_modules") || {};
-      const edgeMods = model.get("_edge_modules") || {};
       const [nodeLoaded, edgeLoaded] = await Promise.all([
-        loadModules(nodeMods, "node"),
-        loadModules(edgeMods, "edge"),
+        loadModules(meta.nodeModules || {}, "node"),
+        loadModules(meta.edgeModules || {}, "edge"),
       ]);
       setDynTypes({ nodeTypes: nodeLoaded, edgeTypes: edgeLoaded });
     };
 
     reload();
-    model.on("change:_node_modules", reload);
-    model.on("change:_edge_modules", reload);
-    return () => {
-      model.off("change:_node_modules", reload);
-      model.off("change:_edge_modules", reload);
-    };
-  }, [model]);
+  }, [meta.nodeModules, meta.edgeModules]);
 
-  // ── Custom message handler (undo/redo/clear_history from Python) ──────────
+  // ── Down-events: undo / redo / clear_history (from Python) ────────────────
   React.useEffect(() => {
-    const onMsg = (_model, msg) => {
-      if (!msg || !msg.type) return;
-      if (msg.type === "undo") {
+    const restore = (snapshot, nextHist) => {
+      histRef.current = nextHist;
+      skipHistoryRef.current = true;
+      setNodes(snapshot.nodes);
+      setEdges(snapshot.edges);
+      transport.pushChange({ nodes: snapshot.nodes, edges: snapshot.edges });
+    };
+    const unsubs = [
+      transport.onEvent("undo", () => {
         const { past, redoStack } = histRef.current;
         if (!past.length) return;
         const prev = past[past.length - 1];
-        const newPast = past.slice(0, -1);
-        setNodes((cur) => {
-          histRef.current = {
-            past: newPast,
-            redoStack: [{ nodes: cur, edges: edges }, ...redoStack],
-          };
-          skipHistoryRef.current = true;
-          model.set("nodes", prev.nodes);
-          model.set("edges", prev.edges);
-          model.save_changes();
-          return cur;
+        restore(prev, {
+          past: past.slice(0, -1),
+          redoStack: [{ nodes, edges }, ...redoStack],
         });
-      } else if (msg.type === "redo") {
+      }),
+      transport.onEvent("redo", () => {
         const { past, redoStack } = histRef.current;
         if (!redoStack.length) return;
         const next = redoStack[0];
-        setNodes((cur) => {
-          histRef.current = {
-            past: [...past, { nodes: cur, edges: edges }],
-            redoStack: redoStack.slice(1),
-          };
-          skipHistoryRef.current = true;
-          model.set("nodes", next.nodes);
-          model.set("edges", next.edges);
-          model.save_changes();
-          return cur;
+        restore(next, {
+          past: [...past, { nodes, edges }],
+          redoStack: redoStack.slice(1),
         });
-      } else if (msg.type === "clear_history") {
+      }),
+      transport.onEvent("clear_history", () => {
         histRef.current = { past: [], redoStack: [] };
-      }
-    };
-    model.on("msg:custom", onMsg);
-    return () => model.off("msg:custom", onMsg);
-  }, [model, edges]);
+      }),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [transport, nodes, edges]);
 
   // ── Keyboard: copy/paste, undo/redo ──────────────────────────────────────
   React.useEffect(() => {
     const onKey = (e) => {
-      const meta = e.ctrlKey || e.metaKey;
-      if (!meta) return;
+      const metaKey = e.ctrlKey || e.metaKey;
+      if (!metaKey) return;
 
       if (e.key === "z" && !e.shiftKey) {
         e.preventDefault();
@@ -463,9 +453,7 @@ function App({ model }) {
         skipHistoryRef.current = true;
         setNodes(prev.nodes);
         setEdges(prev.edges);
-        model.set("nodes", prev.nodes);
-        model.set("edges", prev.edges);
-        model.save_changes();
+        transport.pushChange({ nodes: prev.nodes, edges: prev.edges });
         return;
       }
 
@@ -481,9 +469,7 @@ function App({ model }) {
         skipHistoryRef.current = true;
         setNodes(next.nodes);
         setEdges(next.edges);
-        model.set("nodes", next.nodes);
-        model.set("edges", next.edges);
-        model.save_changes();
+        transport.pushChange({ nodes: next.nodes, edges: next.edges });
         return;
       }
 
@@ -531,15 +517,13 @@ function App({ model }) {
         pushHistory(histRef, nodes, edges);
         setNodes(nextNodes);
         setEdges(nextEdges);
-        model.set("nodes", nextNodes);
-        model.set("edges", nextEdges);
-        model.save_changes();
+        transport.pushChange({ nodes: nextNodes, edges: nextEdges });
       }
     };
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [model, nodes, edges]);
+  }, [transport, nodes, edges]);
 
   // ── Commit seam ───────────────────────────────────────────────────────────
   const commitSeam = React.useCallback(
@@ -548,11 +532,11 @@ function App({ model }) {
         pushHistory(histRef, currentNodes, currentEdges);
       }
       skipHistoryRef.current = false;
-      model.set("nodes", nextNodes);
-      if (nextEdges !== undefined) model.set("edges", nextEdges);
-      model.save_changes();
+      const patch = { nodes: nextNodes };
+      if (nextEdges !== undefined) patch.edges = nextEdges;
+      transport.pushChange(patch);
     },
-    [model]
+    [transport]
   );
 
   const onNodesChange = React.useCallback(
@@ -565,14 +549,14 @@ function App({ model }) {
             c.type === "add" ||
             (c.type === "position" && c.dragging === false)
         );
-        if (commit && !echoRef.current) {
+        if (commit && !sync.isEcho()) {
           commitSeam(next, undefined, current, edges);
         }
-        echoRef.current = false;
+        sync.clearEcho();
         return next;
       });
     },
-    [commitSeam, edges]
+    [commitSeam, edges, sync]
   );
 
   const onEdgesChange = React.useCallback(
@@ -580,22 +564,22 @@ function App({ model }) {
       setEdges((current) => {
         const next = applyEdgeChanges(changes, current);
         const commit = changes.some((c) => c.type === "remove" || c.type === "add");
-        if (commit && !echoRef.current) {
+        if (commit && !sync.isEcho()) {
           commitSeam(nodes, next, nodes, current);
         }
-        echoRef.current = false;
+        sync.clearEcho();
         return next;
       });
     },
-    [commitSeam, nodes]
+    [commitSeam, nodes, sync]
   );
 
   // emit function for L3 custom components
   const emit = React.useCallback(
     (eventName, payload) => {
-      model.send({ event: eventName, payload });
+      transport.sendEvent(eventName, payload);
     },
-    [model]
+    [transport]
   );
 
   // Inject emit into node data for L3 components
@@ -604,8 +588,8 @@ function App({ model }) {
     [nodes, emit]
   );
 
-  const colorMode = model.get("color_mode") || "light";
-  const fitView = model.get("fit_view") !== false;
+  const colorMode = meta.colorMode || "light";
+  const fitView = meta.fitView !== false;
 
   return React.createElement(
     ReactFlow,
@@ -625,17 +609,70 @@ function App({ model }) {
     },
     React.createElement(Background, null),
     React.createElement(Controls, null),
-    React.createElement(MiniMap, null)
+    React.createElement(MiniMap, null),
+    transport.downloadAffordance
+      ? React.createElement(DownloadButton, { transport })
+      : null
   );
 }
 
+// ─── Download JSON control (static export only; ITER_V2_02) ───────────────────
+
+function DownloadButton({ transport }) {
+  const onClick = React.useCallback(() => {
+    const json = transport.serializeState();
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "figureflow.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [transport]);
+
+  return React.createElement(
+    "button",
+    {
+      onClick,
+      style: {
+        position: "absolute",
+        top: 8,
+        right: 8,
+        zIndex: 10,
+        padding: "6px 12px",
+        fontSize: 12,
+        fontFamily: "Inter, system-ui, sans-serif",
+        background: "#0f172a",
+        color: "#ffffff",
+        border: "none",
+        borderRadius: 6,
+        cursor: "pointer",
+      },
+    },
+    "Download JSON"
+  );
+}
+
+// ─── Mount: shared entry for every adapter ────────────────────────────────────
+
+function mountApp(el, transport, opts = {}) {
+  ensureStyle();
+  el.classList.add("figureflow");
+  el.style.position = el.style.position || "relative";
+  el.style.height = `${opts.height || 480}px`;
+  const root = createRoot(el);
+  root.render(React.createElement(App, { transport }));
+  return () => root.unmount();
+}
+
+globalThis.figureflow.mount = mountApp;
+
+// anywidget entry — the notebook door of the seam (ITER_V2_01).
 export default {
   render({ model, el }) {
-    ensureStyle();
-    el.classList.add("figureflow");
-    el.style.height = `${model.get("height") || 480}px`;
-    const root = createRoot(el);
-    root.render(React.createElement(App, { model }));
-    return () => root.unmount();
+    const transport = createAnywidgetTransport(model);
+    return mountApp(el, transport, { height: model.get("height") || 480 });
   },
 };

@@ -19,6 +19,7 @@ the how-to for your task.
    - [Edit on the canvas](how-to/edit-on-canvas.md) — drag, select, copy/paste, undo/redo, read positions back.
    - [Group and lay out](how-to/group-and-layout.md) — group nodes and auto-arrange with dagre.
    - [Save and load](how-to/save-and-load.md) — JSON round-trip and mermaid export.
+   - [Display anywhere](how-to/display-anywhere.md) — notebook, live browser tab (`serve()`), or offline HTML (`to_html()`).
    - [Custom components](how-to/custom-components.md) — the L3 escape hatch: your own JS node + `emit`/`on`.
 3. [Reference](reference.md) — full API, every style field, the shape table, keyboard shortcuts.
 4. [Troubleshooting](troubleshooting.md) — symptom → fix for common stumbles.
