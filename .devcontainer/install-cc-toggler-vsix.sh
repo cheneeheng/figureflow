@@ -7,7 +7,7 @@ TARGET_DIR="/tmp/vsix"
 mkdir -p "$TARGET_DIR"
 
 echo "Fetching latest VSIX from $REPO..."
-if ! gh release download --repo "$REPO" --pattern "*.vsix" --dir "$TARGET_DIR"; then
+if ! gh release download --repo "$REPO" --pattern "*.vsix" --dir "$TARGET_DIR" --clobber; then
     echo "Warning: Unable to download VSIX from latest release. Skipping installation."
     exit 0
 fi
