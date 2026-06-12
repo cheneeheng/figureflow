@@ -62,22 +62,22 @@ pipes. The renderer never knows which pipe it sits on.
             (traitlets)    POST↑ /change      baked JSON
 ═════════════════╪════════════════╪══════════════╪═════ browser boundary
                  ▼                ▼              ▼      ┐ one vendored
-            (anywidget)      (server)       (static)   │ esbuild bundle
+            (anywidget)      (server)       (static)    │ esbuild bundle
             JS adapter       JS adapter     JS adapter  │ ("the binary"):
                  └────────────────┼──────────────┘      │ renderer +
-                                  ▼                      │ all 3 JS
+                                  ▼                     │ all 3 JS
                      ┌────────────────────────┐         │ adapters +
-                     │  Transport (JS iface)   │         │ the JS iface
-                     │  getState · subscribe   │         │
-                     │  pushChange · sendEvent │         │
-                     └───────────┬─────────────┘         │
-                                 ▼                        │
-                     ┌────────────────────────┐          │
-                     │  RENDERER (v1, built    │          │
-                     │  once): React Flow +    │          │
-                     │  shape/style layer.     │          │
-                     │  Pipe-agnostic.         │          │
-                     └────────────────────────┘          ┘
+                     │  Transport (JS iface)   │        │ the JS iface
+                     │  getState · subscribe   │        │
+                     │  pushChange · sendEvent │        │
+                     └───────────┬─────────────┘        │
+                                 ▼                      │
+                     ┌────────────────────────┐         │
+                     │  RENDERER (v1, built   │         │
+                     │  once): React Flow +   │         │
+                     │  shape/style layer.    │         │
+                     │  Pipe-agnostic.        │         │
+                     └────────────────────────┘         ┘
 ```
 
 **Data model: unchanged.** No new persistent entities. `Node`/`Edge`/`Flow` are
