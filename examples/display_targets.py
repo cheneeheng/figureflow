@@ -44,12 +44,15 @@ if __name__ == "__main__":
     print("Flow.from_json(open('figureflow.json').read()) reimports that layout.")
 
     # 3) Server door — live bidirectional sync in a plain browser tab (localhost only).
+    # One live adapter per Flow at a time (ITER_V2_04): `flow` above is bound to
+    # the notebook door by display(), so the live server gets its own Flow.
     if "--serve" in sys.argv:
-        url = flow.serve()  # prints + returns the URL; opens the browser
-        print(f"Serving live at {url} — drag a node, then check flow.positions().")
+        live = build()
+        url = live.serve()  # prints + returns the URL; opens the browser
+        print(f"Serving live at {url} — drag a node, then check live.positions().")
         try:
             input("Press Enter to stop the server...\n")
         finally:
-            flow.stop()
+            live.stop()
     else:
         print("Pass --serve to also start the live server (flow.serve()).")

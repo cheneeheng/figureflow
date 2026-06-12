@@ -43,6 +43,11 @@ flow.stop()                 # shut the server down
   `python script.py` use (Ctrl+C stops it). Calling `serve()` again stops the previous server
   first.
 - Single-user and localhost by design — see [Out of scope](#out-of-scope).
+- **One live adapter per `Flow` at a time.** Calling `serve()` on a `Flow` that is currently
+  displayed in a notebook (or `display()` while a server is running) emits a `UserWarning`
+  and continues, but the two views will not stay in sync. Use a separate `Flow` per live
+  view. Static `to_html()` is exempt — it is a snapshot, not a live pipe, and may be taken
+  at any moment.
 
 ## 3. Offline snapshot — `to_html()`
 
