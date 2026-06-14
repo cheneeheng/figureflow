@@ -4,6 +4,10 @@ Runnable examples covering the main features. Each script **builds a diagram** a
 text summary, so you can run it from a terminal — then drop the same code into a notebook
 cell (ending with `flow`) to see the live, interactive widget.
 
+> **Prefer a notebook?** [`examples.ipynb`](examples.ipynb) collects all five examples in one
+> runnable notebook — open it in JupyterLab/Notebook/VS Code/Colab and run each section to see
+> the widget render inline.
+
 ## Setup
 
 ```bash
@@ -33,7 +37,7 @@ python examples/05_display_targets.py     # add --serve for the live browser tab
 In the interactive widget:
 
 - **Left-drag** — box-select nodes.
-- **Ctrl/Cmd + left-drag** (or middle/right-drag) — pan the canvas.
+- **Middle/right-drag** — pan the canvas.
 - **Shift + click** — add to the selection.
 
 ## Seeing the interactive widget
