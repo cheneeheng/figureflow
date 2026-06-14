@@ -28,14 +28,14 @@ A string enum of the eight built-in node shapes:
 ## `Node`
 
 ```python
-Node(id, label="", pos=(0, 0), **style)
+Node(id, label="", pos=None, **style)
 ```
 
 | Field | Type | Default | Meaning |
 |-------|------|---------|---------|
 | `id` | str | — (required) | Unique id within the flow |
 | `label` | str | `""` | Text shown in the node |
-| `pos` | (float, float) | `(0, 0)` | Top-left `(x, y)` on the canvas |
+| `pos` | (float, float) \| None | `None` | Top-left `(x, y)` on the canvas. `None` = **unplaced**: the renderer auto-places it on first render (see [Import a diagram](how-to/import-diagrams.md#positions-are-optional)). An explicit tuple — including `(0, 0)` — is honored as-is. |
 | `shape` | `Shape` | `Shape.rectangle` | Built-in shape |
 | `fill` | str | `"#ffffff"` | Background color |
 | `border_color` | str | `"#334155"` | Outline color |
@@ -94,7 +94,8 @@ Edge(source, target, **style)
 ## `Flow`
 
 ```python
-Flow(nodes=None, edges=None, color_mode="light", fit_view=True, height=480)
+Flow(nodes=None, edges=None, color_mode="light", fit_view=True, height=480,
+     layout_direction="TB")
 ```
 
 | Argument | Type | Default | Meaning |
@@ -104,6 +105,7 @@ Flow(nodes=None, edges=None, color_mode="light", fit_view=True, height=480)
 | `color_mode` | str | `"light"` | Canvas theme: `"light"` or `"dark"` |
 | `fit_view` | bool | `True` | Fit the graph to the viewport on render |
 | `height` | int | `480` | Canvas height in pixels |
+| `layout_direction` | str | `"TB"` | Direction the auto-layout places **unplaced** nodes: `TB` / `BT` / `LR` / `RL`. `ValueError` on any other value. |
 
 ### Methods
 
@@ -116,16 +118,17 @@ Flow(nodes=None, edges=None, color_mode="light", fit_view=True, height=480)
 | `redo` | `() -> None` | Step forward through canvas-edit history (no-op when empty) |
 | `group` | `(node_ids, label="") -> str` | Wrap nodes in a container; returns the group id. `ValueError` if `node_ids` is empty / unknown |
 | `layout` | `(algo="dagre", direction="TB", **opts) -> None` | Auto-arrange via dagre. `ValueError` on a non-`dagre` algo or a direction outside `TB/BT/LR/RL` |
-| `to_json` | `() -> str` | Lossless JSON snapshot |
-| `from_json` | `(s) -> Flow` *(classmethod)* | Build a new `Flow` from a snapshot. `ValueError` on an unknown schema |
-| `load_json` | `(s) -> None` | Replace nodes/edges in place; clears undo history |
+| `to_json` | `() -> str` | Lossless JSON snapshot (includes `layout_direction`) |
+| `from_json` | `(s, *, strict=False) -> Flow` *(classmethod)* | Build a new `Flow` from a snapshot; positions optional. Raises `FlowValidationError` listing every problem; `strict=True` escalates warnings to errors |
+| `from_mermaid` | `(s, *, strict=False) -> Flow` *(classmethod)* | Build a new `Flow` from a [mermaid flowchart](how-to/import-diagrams.md) (bounded subset). Raises `MermaidParseError`; `strict=True` escalates skipped-directive warnings |
+| `load_json` | `(s, *, strict=False) -> None` | Replace nodes/edges in place (adopts the snapshot's `layout_direction`); clears undo history |
 | `to_mermaid` | `(direction="TB") -> str` | Lossy mermaid flowchart export |
 | `register_node_type` | `(name, module) -> None` | Register an L3 node component. `ValueError` on an invalid/colliding name |
 | `register_edge_type` | `(name, module) -> None` | Register an L3 edge component. `ValueError` on an invalid/colliding name |
 | `on` | `(event, callback) -> unsubscribe` | Subscribe to `emit()` events; returns an unsubscribe function |
 | `display` | `() -> Flow` | Render in a notebook (returns `self`; a bare `flow` cell does the same) |
 | `to_html` | `(path=None, *, title=None) -> str` | Self-contained offline interactive snapshot; writes to `path` if given, returns the HTML |
-| `serve` | `(host="127.0.0.1", port=0, *, open_browser=True, block=False) -> str` | Live bidirectional sync in a browser tab (stdlib server, localhost only); returns the URL |
+| `serve` | `(host="127.0.0.1", port=0, *, open_browser=True, block=False, quiet=False) -> str` | Live bidirectional sync in a browser tab (stdlib server, localhost only); returns the URL. `quiet=True` suppresses the URL print (used by the MCP server) |
 | `stop` | `() -> None` | Stop a running `serve()` server (no-op if none) |
 
 ### Display targets
@@ -133,12 +136,33 @@ Flow(nodes=None, edges=None, color_mode="light", fit_view=True, height=480)
 `display()`, `to_html()`, and `serve()` are three interchangeable doors onto the same
 renderer (the v2 transport seam). See the how-to: [Display anywhere](how-to/display-anywhere.md).
 
-### Serialization methods
+### Serialization and import methods
 
-JSON snapshots use the envelope schema `"figureflow/1"` and include `color_mode`,
-`fit_view`, `height`, `nodes`, and `edges`. Positions are saved, so a reload needs no
-re-layout. `to_mermaid` is structural only (no per-element colors/fonts/`svg_path`/`html`).
-There is no import (mermaid → figureflow); use the JSON round-trip to restore a diagram.
+JSON snapshots use the envelope schema `"figureflow/1"` and include `color_mode`, `fit_view`,
+`height`, `layout_direction`, `nodes`, and `edges`. Placed positions are saved; **a node may omit
+its position** (it is then auto-placed on render). The shipped JSON Schema at
+`figureflow/static/figureflow.schema.json` (draft 2020-12) documents the full envelope.
+
+`to_mermaid` is structural only (no per-element colors/fonts/`svg_path`/`html`). The inverse,
+`from_mermaid`, imports a bounded mermaid flowchart subset — also structural. Both `from_json`
+and `from_mermaid` route through one validation funnel that **collects every problem** into a
+single exception and surfaces non-fatal fix-ups as warnings (escalated by `strict=True`). See
+[Import a diagram](how-to/import-diagrams.md).
+
+### Exceptions
+
+| Exception | Raised by | Carries |
+|-----------|-----------|---------|
+| `FlowValidationError` | `from_json`, `load_json` (and `validate`) | `.problems` — a list of `{path, message, hint}`; `str(exc)` is one problem per line. Subclass of `ValueError`. |
+| `MermaidParseError` | `from_mermaid` | `.problems` (same shape, with line numbers); `str(exc)` is one per line. Subclass of `ValueError`. |
+
+Both are importable from the top level: `from figureflow import FlowValidationError, MermaidParseError`.
+
+### MCP server
+
+`pip install 'figureflow[mcp]'` adds the `figureflow-mcp` console script — an MCP server that
+exposes the import functions and `serve()` to an AI agent. It is an operator-facing component;
+see the [MCP server runbook](operations/mcp-server.md).
 
 ## Canvas controls
 
@@ -159,8 +183,11 @@ Pasted ids follow `{originalId}-copy-{n}`; pastes are offset `(+24, +24)`. Edges
 defined from Python (you cannot draw a new edge between handles on the canvas), but they can
 be selected, copied (when both endpoints are selected), and deleted.
 
-## Not in scope (v0.1)
+## Not in scope
 
-Format *import* (mermaid/DOT → figureflow), system-clipboard copy/paste across apps,
-undo/redo of programmatic Python edits, obstacle-avoiding edge routing, and a
-compile-against-source TypeScript package. See `docs/planning/SKELETON.md` § "Out of MVP scope".
+Mermaid flowchart *import* is supported (`from_mermaid`), but still out of scope: other mermaid
+diagram types (sequence/class/state/gantt), `classDef`/style fidelity, nested subgraphs, and
+non-mermaid grammars (DOT); multi-diagram MCP sessions and granular per-element MCP edit tools;
+system-clipboard copy/paste across apps; undo/redo of programmatic Python edits; obstacle-avoiding
+edge routing; and a compile-against-source TypeScript package. See
+`docs/planning/ITER_V3_03.md` § "Out of MVP scope" and `docs/planning/SKELETON.md` § "Out of MVP scope".

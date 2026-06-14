@@ -32,7 +32,7 @@ python -c "import figureflow; print(figureflow.__all__)"
 Expected output:
 
 ```
-['Shape', 'Node', 'Edge', 'Flow']
+['Shape', 'Node', 'Edge', 'Flow', 'FlowValidationError', 'MermaidParseError']
 ```
 
 If you see those four names, the package is installed.

@@ -39,9 +39,11 @@ flow2   # display the restored diagram
 The round-trip is exact: `Flow.from_json(flow.to_json())` reproduces the nodes and edges
 (modulo key ordering).
 
-> **Errors:** a snapshot from an incompatible future schema raises `ValueError`
-> (`Unsupported figureflow schema ...`). Snapshots written by figureflow `0.1.x` use schema
-> `figureflow/1`.
+> **Errors are collected.** A malformed snapshot raises a single `FlowValidationError` listing
+> *every* problem, one line each (`path: what is wrong. hint`) — not just the first. Pass
+> `strict=True` to also escalate forgiving fix-ups (numeric strings, unknown keys) to errors.
+> Snapshots use schema `figureflow/1`; an unknown major version is one of the reported problems.
+> See [Import a diagram](import-diagrams.md#fix-a-bad-diagram-in-one-pass).
 
 **Verify:** `flow2` has the same node and edge counts as the original and renders identically.
 
@@ -91,9 +93,10 @@ replaced with underscores so the output is valid mermaid.
 **Verify:** paste the output into any mermaid renderer — it draws a flowchart with the right
 shapes, edges, and labels.
 
-> **Import is not supported.** figureflow exports to mermaid and JSON but does not parse
-> mermaid (or other diagram grammars) back into a `Flow`. Use the JSON round-trip to restore
-> a figureflow diagram.
+> **Mermaid also imports.** The inverse direction is supported: `Flow.from_mermaid()` parses a
+> bounded flowchart subset back into a `Flow`. Import is structural (styling is dropped), the
+> mirror of this lossy export. See [Import a diagram](import-diagrams.md). Diagram grammars other
+> than mermaid flowcharts are still out of scope — use the JSON round-trip for a lossless restore.
 
 ## Custom components across a round-trip
 
@@ -105,4 +108,5 @@ Re-register your types before (or right after) loading.
 ## See also
 
 - The runnable example: [`examples/03_serialization.py`](../../../examples/03_serialization.py).
-- [Reference → Serialization](../reference.md#serialization-methods).
+- [Reference → Serialization and import](../reference.md#serialization-and-import-methods).
+- [Import a diagram](import-diagrams.md) — the reverse direction (`from_mermaid` / coordinate-free `from_json`).
