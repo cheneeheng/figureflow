@@ -16,7 +16,8 @@ class TestNodeToDict:
         d = Node("a").to_dict()
         assert d["id"] == "a"
         assert d["type"] == "shape"
-        assert d["position"] == {"x": 0.0, "y": 0.0}
+        # v3: a node with no authored position is unplaced (auto-laid on render).
+        assert "position" not in d
         data = d["data"]
         assert data["shape"] == "rectangle"
         assert data["fill"] == "#ffffff"
@@ -274,7 +275,7 @@ class TestSerialization:
 
     def test_from_json_rejects_unknown_schema(self):
         bad = json.dumps({"schema": "figureflow/99", "nodes": [], "edges": []})
-        with pytest.raises(ValueError, match="Unsupported"):
+        with pytest.raises(ValueError, match="unsupported schema"):
             from_json(bad)
 
     def test_round_trip_with_group(self):

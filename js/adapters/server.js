@@ -54,6 +54,7 @@ export async function createServerTransport(opts = {}) {
       colorMode: state.color_mode || "light",
       fitView: state.fit_view !== false,
       height: state.height || 480,
+      layoutDirection: state.layout_direction || "TB",
       nodeModules: {},
       edgeModules: {},
     };

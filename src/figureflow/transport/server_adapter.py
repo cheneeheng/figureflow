@@ -57,11 +57,13 @@ class ServerAdapter(Transport):
         *,
         open_browser: bool = True,
         block: bool = False,
+        quiet: bool = False,
     ) -> None:
         self._host = host
         self._port = port
         self._open_browser = open_browser
         self._block = block
+        self._quiet = quiet
         self._flow: Optional["Flow"] = None
         self._handler: Optional[ChangeHandler] = None
         # Connected SSE streams as message queues, guarded by their own lock.
@@ -155,7 +157,8 @@ class ServerAdapter(Transport):
 
         self._thread = threading.Thread(target=httpd.serve_forever, daemon=True)
         self._thread.start()
-        print(f"figureflow serving at {self._url}")
+        if not self._quiet:
+            print(f"figureflow serving at {self._url}")
         if self._open_browser:
             webbrowser.open(self._url)
         if self._block:

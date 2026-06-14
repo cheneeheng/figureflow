@@ -299,6 +299,145 @@ function runDagre(nodes, edges, direction) {
   });
 }
 
+// ─── Auto-layout for unplaced nodes (ITER_V3_01 §05) ──────────────────────────
+//
+// Runs on every state application: if any node lacks a `position`, dagre places
+// the unplaced ones (authored positions are kept), the result is committed once
+// through the seam (one undo entry), and — since placed results contain no
+// unplaced nodes — it never re-runs. Groups whose members are unplaced are laid
+// out children-first, then sized to their bounding box (the geometry `group()`
+// applies, computed here because unplaced members have no box to measure in
+// Python). One level of nesting, per ITER_04.
+
+const GROUP_PAD = 32;
+const GROUP_HEADER = 16; // extra top padding so the group label clears children
+
+function hasUnplaced(nodes) {
+  return nodes.some((n) => !n.position);
+}
+
+function nodeSize(n) {
+  return {
+    w: (n.data && n.data.width) || 130,
+    h: (n.data && n.data.height) || (n.type === "group" ? 150 : 56),
+  };
+}
+
+function placeUnplaced(nodes, edges, direction) {
+  const rankdir = direction || "TB";
+  const childrenByParent = new Map();
+  for (const n of nodes) {
+    if (n.parentId) {
+      if (!childrenByParent.has(n.parentId)) childrenByParent.set(n.parentId, []);
+      childrenByParent.get(n.parentId).push(n);
+    }
+  }
+
+  const newPos = new Map(); // id -> {x, y}
+  const newSize = new Map(); // group id -> {width, height}
+
+  // 1. Lay out unplaced children inside each group (parent-relative coords).
+  for (const [, kids] of childrenByParent) {
+    if (!kids.some((k) => !k.position)) continue;
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir, nodesep: 40, ranksep: 50 });
+    g.setDefaultEdgeLabel(() => ({}));
+    for (const k of kids) {
+      const s = nodeSize(k);
+      g.setNode(k.id, { width: s.w, height: s.h });
+    }
+    for (const e of edges) {
+      if (g.hasNode(e.source) && g.hasNode(e.target)) g.setEdge(e.source, e.target);
+    }
+    dagre.layout(g);
+    let minX = Infinity;
+    let minY = Infinity;
+    const topLeft = new Map();
+    for (const k of kids) {
+      const p = g.node(k.id);
+      if (!p) continue;
+      const s = nodeSize(k);
+      const x = p.x - s.w / 2;
+      const y = p.y - s.h / 2;
+      topLeft.set(k.id, { x, y });
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+    }
+    for (const k of kids) {
+      if (k.position) continue;
+      const t = topLeft.get(k.id);
+      if (!t) continue;
+      newPos.set(k.id, {
+        x: t.x - minX + GROUP_PAD,
+        y: t.y - minY + GROUP_PAD + GROUP_HEADER,
+      });
+    }
+  }
+
+  const posOf = (n) => newPos.get(n.id) || n.position;
+
+  // 2. Size each group to its children's bounding box.
+  for (const n of nodes) {
+    if (n.type === "group" && childrenByParent.has(n.id)) {
+      let maxX = 0;
+      let maxY = 0;
+      for (const k of childrenByParent.get(n.id)) {
+        const p = posOf(k);
+        if (!p) continue;
+        const s = nodeSize(k);
+        maxX = Math.max(maxX, p.x + s.w);
+        maxY = Math.max(maxY, p.y + s.h);
+      }
+      newSize.set(n.id, { width: maxX + GROUP_PAD, height: maxY + GROUP_PAD });
+    }
+  }
+
+  // 3. Top-level dagre — groups use their computed size; authored positions kept.
+  const topLevel = nodes.filter((n) => !n.parentId);
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({ rankdir, nodesep: 50, ranksep: 60 });
+  g.setDefaultEdgeLabel(() => ({}));
+  for (const n of topLevel) {
+    const sz = newSize.get(n.id);
+    const s = nodeSize(n);
+    g.setNode(n.id, {
+      width: sz ? sz.width : s.w,
+      height: sz ? sz.height : s.h,
+    });
+  }
+  for (const e of edges) {
+    if (g.hasNode(e.source) && g.hasNode(e.target)) g.setEdge(e.source, e.target);
+  }
+  dagre.layout(g);
+  for (const n of topLevel) {
+    if (n.position) continue; // keep authored
+    const p = g.node(n.id);
+    if (!p) {
+      newPos.set(n.id, { x: 0, y: 0 }); // disconnected fallback — never leave unplaced
+      continue;
+    }
+    const sz = newSize.get(n.id);
+    const s = nodeSize(n);
+    const w = sz ? sz.width : s.w;
+    const h = sz ? sz.height : s.h;
+    newPos.set(n.id, { x: p.x - w / 2, y: p.y - h / 2 });
+  }
+
+  // 4. Emit updated nodes (positions + group sizes), everything else untouched.
+  return nodes.map((n) => {
+    const np = newPos.get(n.id);
+    const ns = newSize.get(n.id);
+    if (!np && !ns) return n;
+    const updated = { ...n };
+    if (np) updated.position = np;
+    if (ns) {
+      updated.data = { ...n.data, width: ns.width, height: ns.height };
+      updated.style = { ...(n.style || {}), width: ns.width, height: ns.height };
+    }
+    return updated;
+  });
+}
+
 // ─── History helpers ─────────────────────────────────────────────────────────
 
 const HISTORY_CAP = 50;
@@ -363,6 +502,24 @@ function App({ transport }) {
       if (state.meta !== undefined) setMeta(state.meta);
     });
   }, [transport, sync]);
+
+  // ── Auto-layout unplaced nodes (ITER_V3_01 §05) ───────────────────────────
+  // Fires after any state application that left nodes without a `position`.
+  // Commits the placed result once through the seam (one undo entry); the
+  // placed result has no unplaced nodes, so this never loops.
+  React.useEffect(() => {
+    if (!hasUnplaced(nodes)) return;
+    const cur = transport.getState();
+    const curNodes = cur.nodes && cur.nodes.length ? cur.nodes : nodes;
+    const curEdges = cur.edges && cur.edges.length ? cur.edges : edges;
+    if (!hasUnplaced(curNodes)) return;
+    const direction = (cur.meta && cur.meta.layoutDirection) || "TB";
+    const placed = placeUnplaced(curNodes, curEdges, direction);
+    pushHistory(histRef, curNodes, curEdges);
+    skipHistoryRef.current = false;
+    setNodes(placed);
+    transport.pushChange({ nodes: placed });
+  }, [nodes, transport]);
 
   // ── Layout request (Python pushes a "layout" event; dagre runs client-side) ─
   React.useEffect(() => {

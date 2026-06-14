@@ -25,6 +25,7 @@ export function createStaticTransport(island) {
           colorMode: island.color_mode || "light",
           fitView: island.fit_view !== false,
           height: island.height || 480,
+          layoutDirection: island.layout_direction || "TB",
           nodeModules: {},
           edgeModules: {},
         },
@@ -57,6 +58,7 @@ export function createStaticTransport(island) {
         color_mode: island.color_mode || "light",
         fit_view: island.fit_view !== false,
         height: island.height || 480,
+        layout_direction: island.layout_direction || "TB",
         nodes: current.nodes,
         edges: current.edges,
       });

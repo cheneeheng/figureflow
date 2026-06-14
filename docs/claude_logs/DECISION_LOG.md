@@ -183,3 +183,40 @@ pyproject.toml is the released manifest.
 **Impact / Risk:** Low. package.json version stays decoupled (intentional).
 **Outcome:** PR #6 merged (merge commit 0297298), branch deleted, tag v2.0.0 pushed,
 GitHub release created. CI was green before merge.
+
+### Entry 012
+
+**Type:** Decision
+**Mode:** Autonomous
+**Timestamp:** 2026-06-14T00:00:00Z
+**Task:** Implement the v3 plan family (ITER_V3_01..03) on a feature branch.
+
+**Context:** Several forks the plans left open or that collided with standing
+invariants. (1) ITER_V3_03 adds the `mcp` Python SDK as a dependency, which the
+ceh-architecture/python-library invariant "never add web-service deps to a library"
+forbids. (2) The error-message contract example shows paths like `nodes[3].shape`,
+but in channel form the field lives at `nodes[3].data.shape`. (3) Subgraph→group:
+the parser builds group nodes via the `Node` dataclass, whose baseline fill is white,
+not the translucent group look. (4) The MCP error contract names only
+`FlowValidationError`/`MermaidParseError`, but `json.loads` raises `JSONDecodeError`
+first on malformed input. (5) Changing `Node.pos` default to `None` broke two existing
+test assertions that encoded the old `(0,0)` default and the old single-line schema error.
+**Decision:** (1) Added `mcp` only as the optional extra `figureflow[mcp]` with a lazy,
+guarded import — core `pip install figureflow` stays dependency-free, which is exactly
+the carve-out the plan and CLAUDE.md (higher authority) prescribe. (2) Report friendly
+flattened paths (`nodes[i].shape`, `nodes[i].fontSize`, …) for in-`data` fields, matching
+the plan's example and giving the LLM the field name it actually emits. (3) Construct
+subgraph group nodes with explicit translucent fill (`rgba(226,232,240,0.4)`) and grey
+border to match the front-end GroupNode look, since the baseline white would render a
+solid box. (4) Catch `json.JSONDecodeError` alongside the named exceptions in MCP
+create/replace so malformed input returns a `{error}` tool result instead of crashing the
+protocol. (5) Updated the two existing assertions to the intended new behavior (position
+omitted when unplaced; schema error now lowercase/multi-line) — a test edit tracking an
+intentional API change, not new test authoring.
+**Impact / Risk:** Low. The `mcp` extra is opt-in; friendly paths are descriptive only;
+group styling is cosmetic. Did NOT build the ITER_V3_02 ~50-flowchart corpus or author a
+pytest suite for the new code (verification steps are user-facing and writing tests was
+unrequested) — flagged for the user.
+**Outcome:** All 129 existing tests pass; positions-optional, layout_direction, collected
+validation, mermaid import (shapes/edges/subgraphs/errors), and the five MCP tools verified
+by ad-hoc checks. Bundle rebuilt (388.0kb). Work on branch feat/v3-llm-ingestion.

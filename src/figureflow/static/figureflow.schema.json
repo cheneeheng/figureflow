@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cheneeheng/figureflow/figureflow.schema.json",
+  "title": "figureflow/1 envelope",
+  "description": "The lossless wire format figureflow.to_json emits and from_json ingests. Positions are optional: a node without 'position' is unplaced and auto-laid by the renderer on mount, using the envelope's layout_direction. This schema is descriptive (the runtime validator is hand-rolled, stdlib-only); it is the emission target for an LLM authoring a diagram.",
+  "type": "object",
+  "required": ["schema", "nodes", "edges"],
+  "properties": {
+    "schema": {
+      "const": "figureflow/1",
+      "description": "Envelope version. Only the 'figureflow/1' major is accepted."
+    },
+    "color_mode": {
+      "enum": ["light", "dark"],
+      "default": "light"
+    },
+    "fit_view": { "type": "boolean", "default": true },
+    "height": { "type": "integer", "default": 480 },
+    "layout_direction": {
+      "enum": ["TB", "BT", "LR", "RL"],
+      "default": "TB",
+      "description": "rankdir for the auto-layout of unplaced nodes. Additive-optional: documents without it default to TB."
+    },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/edge" }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "shape": {
+      "enum": [
+        "rectangle",
+        "rounded",
+        "stadium",
+        "ellipse",
+        "diamond",
+        "parallelogram",
+        "hexagon",
+        "cylinder"
+      ]
+    },
+    "position": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "description": "Unique node id." },
+        "type": {
+          "type": "string",
+          "default": "shape",
+          "description": "'shape' (default), 'group', or a registered custom type."
+        },
+        "position": {
+          "$ref": "#/$defs/position",
+          "description": "Optional. Omit to let the renderer auto-place the node."
+        },
+        "parentId": {
+          "type": "string",
+          "description": "Group membership (the node renders inside this group)."
+        },
+        "extent": { "const": "parent" },
+        "data": {
+          "type": "object",
+          "description": "Per-element styling. All fields optional; omitted fields take built-in defaults.",
+          "properties": {
+            "label": { "type": "string" },
+            "shape": { "$ref": "#/$defs/shape" },
+            "fill": { "type": "string", "description": "CSS color." },
+            "borderColor": { "type": "string" },
+            "borderWidth": { "type": "number" },
+            "fontFamily": { "type": "string" },
+            "fontSize": { "type": "number" },
+            "fontColor": { "type": "string" },
+            "bold": { "type": "boolean" },
+            "italic": { "type": "boolean" },
+            "textAlign": { "enum": ["left", "center", "right"] },
+            "width": { "type": "number" },
+            "height": { "type": "number" },
+            "html": { "type": "string", "description": "L2 raw-HTML label." },
+            "svgPath": { "type": "string", "description": "L1 custom SVG path." }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "edge": {
+      "type": "object",
+      "required": ["source", "target"],
+      "properties": {
+        "id": { "type": "string" },
+        "source": { "type": "string", "description": "Source node id." },
+        "target": { "type": "string", "description": "Target node id." },
+        "type": {
+          "enum": ["default", "straight", "step", "smoothstep"],
+          "description": "Path routing. 'default' is bezier."
+        },
+        "label": { "type": "string" },
+        "style": {
+          "type": "object",
+          "properties": {
+            "stroke": { "type": "string" },
+            "strokeWidth": { "type": "number" },
+            "strokeDasharray": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "markerStart": { "$ref": "#/$defs/marker" },
+        "markerEnd": { "$ref": "#/$defs/marker" }
+      },
+      "additionalProperties": true
+    },
+    "marker": {
+      "type": "object",
+      "properties": {
+        "type": { "enum": ["arrow", "arrowclosed"] }
+      }
+    }
+  }
+}

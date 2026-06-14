@@ -20,7 +20,17 @@ import traitlets
 if TYPE_CHECKING:
     from figureflow.transport.base import Transport
 
-__all__ = ["Shape", "Node", "Edge", "Flow"]
+from figureflow.serialize import FlowValidationError
+from figureflow.mermaid_in import MermaidParseError
+
+__all__ = [
+    "Shape",
+    "Node",
+    "Edge",
+    "Flow",
+    "FlowValidationError",
+    "MermaidParseError",
+]
 
 _STATIC = pathlib.Path(__file__).parent / "static"
 
@@ -77,7 +87,9 @@ class Node:
 
     id: str
     label: str = ""
-    pos: Tuple[float, float] = (0.0, 0.0)
+    # ``None`` means "unplaced — auto-place me" (v3): the renderer runs dagre on
+    # mount and commits the result. An explicit tuple behaves exactly as v1/v2.
+    pos: Optional[Tuple[float, float]] = None
     shape: Shape = field(default_factory=lambda: _BASELINE["shape"])
     fill: str = field(default_factory=lambda: _BASELINE["fill"])
     border_color: str = field(default_factory=lambda: _BASELINE["border_color"])
@@ -124,9 +136,11 @@ class Node:
         d: Dict[str, Any] = {
             "id": self.id,
             "type": self.type or "shape",
-            "position": {"x": self.pos[0], "y": self.pos[1]},
             "data": data,
         }
+        # Unplaced nodes omit ``position`` entirely; the renderer auto-lays them.
+        if self.pos is not None:
+            d["position"] = {"x": self.pos[0], "y": self.pos[1]}
         if self.parent_id is not None:
             d["parentId"] = self.parent_id
         if self.extent is not None:
@@ -240,6 +254,9 @@ class Flow(anywidget.AnyWidget):
     color_mode = traitlets.Unicode("light").tag(sync=True)
     fit_view = traitlets.Bool(True).tag(sync=True)
     height = traitlets.Int(480).tag(sync=True)
+    # v3: rankdir the unplaced-node auto-layout uses; rides the Transport meta
+    # alongside color_mode/fit_view/height.
+    layout_direction = traitlets.Unicode("TB").tag(sync=True)
 
     # L3 custom-component registries — synced but inert until ITER_06.
     _node_modules = traitlets.Dict().tag(sync=True)
@@ -254,12 +271,19 @@ class Flow(anywidget.AnyWidget):
         color_mode: str = "light",
         fit_view: bool = True,
         height: int = 480,
+        layout_direction: str = "TB",
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
+        if layout_direction not in ("TB", "BT", "LR", "RL"):
+            raise ValueError(
+                f"layout_direction: {layout_direction!r} is not a valid layout "
+                "direction. Use one of: TB, BT, LR, RL."
+            )
         self.color_mode = color_mode
         self.fit_view = fit_view
         self.height = height
+        self.layout_direction = layout_direction
         # v2 transport seam: the bound adapter (lazily created by display()/
         # serve()). None until a host door is opened.
         self._transport: Optional["Transport"] = None
@@ -277,10 +301,17 @@ class Flow(anywidget.AnyWidget):
         self.edges = [*self.edges, edge.to_dict()]
 
     def positions(self) -> Dict[str, Tuple[float, float]]:
-        """Current canvas geometry as last synced: ``{id: (x, y)}``."""
+        """Current canvas geometry as last synced: ``{id: (x, y)}``.
+
+        Reports only *placed* nodes. Unplaced nodes (``pos=None``) have no
+        coordinates yet; after first render on any transport the renderer commits
+        their auto-laid positions back, so this becomes total again.
+        """
         out: Dict[str, Tuple[float, float]] = {}
         for n in self.nodes:
-            pos = n.get("position", {})
+            if "position" not in n:
+                continue
+            pos = n["position"]
             out[n["id"]] = (pos.get("x", 0.0), pos.get("y", 0.0))
         return out
 
@@ -362,17 +393,41 @@ class Flow(anywidget.AnyWidget):
         return _to_json(self)
 
     @classmethod
-    def from_json(cls, s: str) -> "Flow":
-        """Rebuild a diagram from ``to_json`` output."""
-        from figureflow.serialize import from_json as _from_json
-        return _from_json(s)
+    def from_json(cls, s: str, *, strict: bool = False) -> "Flow":
+        """Rebuild a diagram from ``to_json`` output.
 
-    def load_json(self, s: str) -> None:
-        """Replace current nodes/edges from JSON and clear undo history."""
+        Routes through the validation funnel: a malformed document raises a
+        single :class:`~figureflow.FlowValidationError` listing every problem.
+        ``strict=True`` escalates forgiving coercions/foldings to errors.
+        """
+        from figureflow.serialize import from_json as _from_json
+        return _from_json(s, strict=strict)
+
+    @classmethod
+    def from_mermaid(cls, s: str, *, strict: bool = False) -> "Flow":
+        """Build a diagram from a mermaid flowchart (bounded subset, ITER_V3_02).
+
+        Nodes are created unplaced; the renderer auto-lays them on mount using
+        the header's direction. ``strict=True`` escalates warn-and-skip
+        directives to errors.
+        """
+        from figureflow.mermaid_in import from_mermaid as _from_mermaid
+        return _from_mermaid(s, strict=strict)
+
+    def load_json(self, s: str, *, strict: bool = False) -> None:
+        """Replace current nodes/edges from JSON and clear undo history.
+
+        Routes the document through the validation funnel (collected,
+        repair-friendly errors) and adopts its ``layout_direction``.
+        """
+        from figureflow.serialize import validate
         import json
-        data = json.loads(s)
-        self.nodes = list(data.get("nodes", []))
-        self.edges = list(data.get("edges", []))
+
+        clean, warnings = validate(json.loads(s), strict=strict)
+        self.layout_direction = clean["layout_direction"]
+        self.nodes = list(clean["nodes"])
+        self.edges = list(clean["edges"])
+        self._import_warnings = warnings
         self.send({"type": "clear_history"})
 
     def to_mermaid(self, direction: str = "TB") -> str:
@@ -447,6 +502,7 @@ class Flow(anywidget.AnyWidget):
         *,
         open_browser: bool = True,
         block: bool = False,
+        quiet: bool = False,
     ) -> str:
         """Serve the diagram in a plain browser tab with live bidirectional sync.
 
@@ -457,6 +513,8 @@ class Flow(anywidget.AnyWidget):
             port: ``0`` lets the OS pick a free port.
             open_browser: Launch the URL via ``webbrowser``.
             block: Join the server thread (for ``python script.py`` use).
+            quiet: Suppress the URL print (the MCP entry point needs stdout
+                protocol-clean — ITER_V3_03).
 
         Returns:
             The served URL.
@@ -479,7 +537,7 @@ class Flow(anywidget.AnyWidget):
         if isinstance(self._transport, ServerAdapter):
             self._transport.stop()
         adapter = ServerAdapter(
-            host, port, open_browser=open_browser, block=block
+            host, port, open_browser=open_browser, block=block, quiet=quiet
         )
         adapter.bind(self)
         self._transport = adapter

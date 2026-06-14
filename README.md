@@ -134,6 +134,43 @@ flow.load_json(json_str)
 print(flow.to_mermaid())
 ```
 
+## LLM authoring (v3)
+
+An LLM can author a diagram **coordinate-free** — emit topology, and the renderer
+validates, places, and renders it.
+
+```python
+# Build from the mermaid an LLM already speaks (bounded flowchart subset)
+flow = Flow.from_mermaid("""
+flowchart TD
+    A([Start]) --> B{Decision}
+    B -->|yes| C[Do the thing]
+""")
+
+# Or from the figureflow/1 JSON envelope, with positions omitted
+flow = Flow.from_json(envelope_str)
+```
+
+- **Positions are optional.** A node with no `pos` is *unplaced*; the renderer
+  auto-lays unplaced nodes on first render using `Flow(layout_direction=...)`
+  (`"TB"` default, or `BT`/`LR`/`RL`). After first render `flow.positions()` is total.
+- **Repair-friendly errors.** `from_json` / `from_mermaid` collect every problem
+  into one `FlowValidationError` / `MermaidParseError` (one line each:
+  `path: what's wrong. hint`), so a model fixes all faults in one round-trip.
+  Pass `strict=True` to escalate forgiving coercions/skips to errors.
+- **Published schema.** The `figureflow/1` JSON Schema ships in the wheel at
+  `figureflow/static/figureflow.schema.json`; see `llms.txt` and `docs/prompts/`.
+
+### MCP server (optional extra)
+
+```bash
+pip install 'figureflow[mcp]'     # console script: figureflow-mcp (stdio)
+```
+
+Exposes `create_diagram` / `get_diagram` / `replace_diagram` / `add_elements` /
+`close_diagram` tools over one live `serve()` canvas, so an agent and a human edit
+the same diagram. Core `pip install figureflow` stays dependency-free.
+
 ## Grouping & layout
 
 ```python
