@@ -79,15 +79,11 @@ flow = build()
 flow.register_node_type("clickable", MODULE_URL)
 
 
-# ── Base: subscribe to the events the component emits ───────────────────────────
-# on() returns an unsubscribe handle. A bare print here is fine when running as a
-# script; in a notebook, prefer pattern A or B below (handlers run outside the cell).
-def on_clicked(payload):
-    print("Node clicked:", payload)
-
-
-unsubscribe = flow.on("clicked", on_clicked)
-
+# on() appends a handler and never de-duplicates: every subscription fires once
+# per click. Subscribe each event ONCE — re-running a registration cell on a Flow
+# that is still alive stacks duplicate handlers (a click then prints N times). The
+# two notebook-safe patterns below are alternatives; A collects silently and B is
+# the only one that prints, so a click produces exactly one line.
 
 # ── Pattern A: collect payloads into a list, inspect in a LATER cell ────────────
 clicks = []
@@ -99,11 +95,11 @@ out = widgets.Output()
 
 
 @out.capture()
-def on_clicked_live(payload):
+def on_clicked(payload):
     print("Node clicked:", payload)
 
 
-unsubscribe_output = flow.on("clicked", on_clicked_live)
+unsubscribe_output = flow.on("clicked", on_clicked)
 
 
 if __name__ == "__main__":
@@ -111,7 +107,6 @@ if __name__ == "__main__":
     print("Nodes using a custom type:",
           [n["id"] for n in flow.nodes if n.get("type") == "clickable"])
     print("\nThis example is interactive — render it in a notebook and click a node.")
-    print("Three ways to observe the clicks (call the matching unsubscribe to stop):")
-    print("  base     — end a cell with `flow`; clicks print (best when scripting).")
+    print("Two ways to observe the clicks (call the matching unsubscribe to stop):")
     print("  pattern A — read `clicks` in a LATER cell, e.g. [{'id': 'Click me!'}].")
     print("  pattern B — `display(flow, out)` (from IPython.display) to watch live.")

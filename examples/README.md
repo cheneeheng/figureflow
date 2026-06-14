@@ -29,7 +29,7 @@ python examples/05_display_targets.py     # add --serve for the live browser tab
 | [`01_quickstart.py`](01_quickstart.py) | All 8 node shapes, the L1 `svg_path` and L2 `html` escape hatches, and the four edge path types with markers/dashes/labels. |
 | [`02_grouping_layout.py`](02_grouping_layout.py) | `Flow.group()` to bundle nodes into a labeled container, then `Flow.layout()` to auto-arrange with dagre. |
 | [`03_serialization.py`](03_serialization.py) | Lossless `to_json()` / `from_json()` round-trip and a lossy `to_mermaid()` export. |
-| [`04_custom_component.py`](04_custom_component.py) | The L3 escape hatch — a custom JS node registered via `register_node_type`, sending click events to Python through `emit` / `Flow.on`. Shows the base handler plus the two notebook-safe patterns: **A** collect payloads into a list to inspect in a later cell, and **B** route them into an `ipywidgets.Output` to watch live. |
+| [`04_custom_component.py`](04_custom_component.py) | The L3 escape hatch — a custom JS node registered via `register_node_type`, sending click events to Python through `emit` / `Flow.on`. Shows the two notebook-safe handler patterns: **A** collect payloads into a list to inspect in a later cell, and **B** route them into an `ipywidgets.Output` to watch live. |
 | [`05_display_targets.py`](05_display_targets.py) | One `Flow`, three transports: `display()` (notebook), `to_html()` (offline snapshot), and `serve()` (live browser tab). |
 
 ## Canvas controls
