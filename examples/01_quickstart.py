@@ -1,8 +1,8 @@
-"""quickstart.py — all 8 shapes, the L1 SVG and L2 HTML escape hatches, and edge styles.
+"""01_quickstart.py — all 8 shapes, the L1 SVG and L2 HTML escape hatches, and edge styles.
 
 Run it as a script to print a text summary of the diagram:
 
-    python examples/quickstart.py
+    python examples/01_quickstart.py
 
 Or paste this into a notebook cell and end the cell with ``flow`` to render the
 interactive widget.

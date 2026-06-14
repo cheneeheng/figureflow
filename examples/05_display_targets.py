@@ -1,11 +1,11 @@
-"""display_targets.py — one Flow, three transports: display() / to_html() / serve().
+"""05_display_targets.py — one Flow, three transports: display() / to_html() / serve().
 
 The same diagram ships to a notebook, a frozen offline file, or a live browser tab
 through the v2 transport seam. Run it as a script to write a static snapshot and
 (optionally) start the live server:
 
-    python examples/display_targets.py            # writes diagram.html
-    python examples/display_targets.py --serve    # also serves a live browser tab
+    python examples/05_display_targets.py            # writes diagram.html
+    python examples/05_display_targets.py --serve    # also serves a live browser tab
 
 Or paste the diagram into a notebook cell and end the cell with ``flow`` to render it
 (that auto-render is exactly what ``flow.display()`` returns).

@@ -1,4 +1,4 @@
-"""custom_component.py — the L3 escape hatch: register_node_type + emit/on.
+"""04_custom_component.py — the L3 escape hatch: register_node_type + emit/on.
 
 A custom node is a plain JS module whose default export is a React function
 component. It must read React from ``globalThis.figureflow`` (not ``import "react"``)
@@ -8,12 +8,29 @@ calling ``emit(name, payload)`` (delivered inside ``data``).
 This example inlines the module as a ``data:`` URL so it works in a notebook with no
 external file server. Run as a script to print the setup:
 
-    python examples/custom_component.py
+    python examples/04_custom_component.py
 
 Then paste the diagram into a notebook cell ending with ``flow`` to render it and
 click a node — the Python ``on("clicked", ...)`` handler fires with the payload.
+
+``Flow.on`` callbacks fire from anywidget's comm-message handler, which runs outside
+any cell's execution context, so a bare ``print`` inside a handler is unreliable (it
+gets dropped or lands under whichever cell ran last). The two robust patterns below
+each handle that — pick one:
+
+    Pattern A — collect, inspect later:
+        flow            # cell 1: render, then click some nodes
+        clicks          # cell 2 (run after clicking): [{'id': 'Click me!'}, ...]
+
+    Pattern B — live ipywidgets.Output (watch events in-place):
+        display(flow, out)   # render both; click nodes and watch `out` update live
+
+``ipywidgets`` ships with anywidget, so it is already available wherever figureflow
+renders.
 """
 import urllib.parse
+
+import ipywidgets as widgets
 
 from figureflow import Edge, Flow, Node
 
@@ -62,17 +79,39 @@ flow = build()
 flow.register_node_type("clickable", MODULE_URL)
 
 
-# Subscribe to the events the component emits. on() returns an unsubscribe handle.
+# ── Base: subscribe to the events the component emits ───────────────────────────
+# on() returns an unsubscribe handle. A bare print here is fine when running as a
+# script; in a notebook, prefer pattern A or B below (handlers run outside the cell).
 def on_clicked(payload):
     print("Node clicked:", payload)
 
 
 unsubscribe = flow.on("clicked", on_clicked)
 
+
+# ── Pattern A: collect payloads into a list, inspect in a LATER cell ────────────
+clicks = []
+unsubscribe_collect = flow.on("clicked", clicks.append)
+
+
+# ── Pattern B: route handler output into an ipywidgets.Output rendered alongside ─
+out = widgets.Output()
+
+
+@out.capture()
+def on_clicked_live(payload):
+    print("Node clicked:", payload)
+
+
+unsubscribe_output = flow.on("clicked", on_clicked_live)
+
+
 if __name__ == "__main__":
     print("Registered node types:", list(flow._node_modules.keys()))
     print("Nodes using a custom type:",
           [n["id"] for n in flow.nodes if n.get("type") == "clickable"])
-    print("\nThis example is interactive — render it in a notebook (end a cell with `flow`)")
-    print("and click a node to see the on('clicked', ...) handler fire.")
-    print("Call unsubscribe() to stop listening.")
+    print("\nThis example is interactive — render it in a notebook and click a node.")
+    print("Three ways to observe the clicks (call the matching unsubscribe to stop):")
+    print("  base     — end a cell with `flow`; clicks print (best when scripting).")
+    print("  pattern A — read `clicks` in a LATER cell, e.g. [{'id': 'Click me!'}].")
+    print("  pattern B — `display(flow, out)` (from IPython.display) to watch live.")

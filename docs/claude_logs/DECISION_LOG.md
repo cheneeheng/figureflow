@@ -138,3 +138,28 @@ and refreshed it to describe the implemented surface. Did not touch any executab
 **Impact / Risk:** `to_html()` remains warning-free in every combination (static export is exempt per §02). The `_SERVER_BOOTSTRAP` page script changed shape; anyone scraping the old `fetch("/state")`-first page would notice, but the page is served, never persisted.
 
 **Outcome:** Suite green (124 passed); example runs clean in script mode.
+
+### Entry 010
+
+**Type:** Decision
+**Mode:** Autonomous
+**Timestamp:** 2026-06-14T00:00:00Z
+**Task:** Renumber examples; merge custom-component examples; pan UX; serve() warning.
+
+**Context:** User asked to number the example files (01_, 02_, ...). Leading-digit
+module names break the previously-documented `from examples.quickstart import flow`
+pattern (a syntax error). Also had to choose a pan-activation mechanism for "Ctrl+drag
+to pan, plain drag to select".
+**Decision:** (1) Numbered files `01_..05_` as requested; switched the examples/README
+"display the prebuilt flow" path from a direct import to `importlib.util` by path, and
+documented why. (2) Merged custom_component{,_collect,_output}.py into one
+`04_custom_component.py` showing the base handler + patterns A/B. (3) Pan: added
+React Flow `panActivationKeyCode=["Control","Meta"]` (kept `panOnDrag=[1,2]` for
+middle/right) + existing `selectionOnDrag=true`, so plain drag box-selects and
+Ctrl/Cmd+drag pans; rebuilt widget.js. (4) The `url.parse()` DeprecationWarning is not
+from figureflow (no `url.parse` in the tree) — it originates from the Node-based OS
+browser launcher that Python's `webbrowser.open()` shells out to under WSL.
+**Impact / Risk:** Numbered modules are no longer importable by dotted name (documented).
+Pan keybinding overlaps Ctrl used for undo/copy, but those are keydown combos and do not
+conflict with hold-Ctrl-drag panning.
+**Outcome:** All examples compile and run; bundle rebuilt (385.6kb).

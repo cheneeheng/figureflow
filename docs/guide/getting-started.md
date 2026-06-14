@@ -86,7 +86,7 @@ The repository ships runnable examples in [`examples/`](../../examples). Each on
 diagram and prints a summary, so you can run it straight from a terminal:
 
 ```bash
-python examples/quickstart.py
+python examples/01_quickstart.py
 ```
 
 Then copy the same code into a notebook cell (ending with `flow`) to see it rendered. See

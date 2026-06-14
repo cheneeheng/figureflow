@@ -68,6 +68,6 @@ left-to-right.
 
 ## See also
 
-- The runnable example: [`examples/grouping_layout.py`](../../../examples/grouping_layout.py).
+- The runnable example: [`examples/02_grouping_layout.py`](../../../examples/02_grouping_layout.py).
 - [Save and load](save-and-load.md) — persist the arranged result (positions are saved, so a
   reload needs no re-layout).

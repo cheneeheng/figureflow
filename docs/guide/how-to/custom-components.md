@@ -135,6 +135,6 @@ that file at that URL — which it usually does not. Prefer a served or `data:` 
 
 ## See also
 
-- The runnable example: [`examples/custom_component.py`](../../../examples/custom_component.py).
+- The runnable example: [`examples/04_custom_component.py`](../../../examples/04_custom_component.py).
 - The typings: `src/figureflow/static/figureflow.d.ts`.
 - [Save and load → Custom components across a round-trip](save-and-load.md#custom-components-across-a-round-trip).

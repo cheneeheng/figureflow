@@ -260,7 +260,9 @@ const _builtinNodeTypes = { shape: ShapeNode, group: GroupNode };
 const _builtinEdgeTypes = {};
 
 // Stable non-inline props for <ReactFlow> (inline arrays/objects remount the graph).
-const PAN_ON_DRAG = [1, 2]; // middle + right button pan; left drag = box select
+// Left drag = box-select nodes; middle/right drag OR Ctrl/Cmd+drag = pan.
+const PAN_ON_DRAG = [1, 2]; // middle + right button pan
+const PAN_ACTIVATION_KEY = ["Control", "Meta"]; // hold Ctrl/Cmd + left drag to pan
 // These will be augmented by L3 registrations at runtime via useMemo in App.
 
 // ─── Auto-layout (dagre) ─────────────────────────────────────────────────────
@@ -606,6 +608,7 @@ function App({ transport }) {
       selectionOnDrag: true,
       multiSelectionKeyCode: "Shift",
       panOnDrag: PAN_ON_DRAG,
+      panActivationKeyCode: PAN_ACTIVATION_KEY,
     },
     React.createElement(Background, null),
     React.createElement(Controls, null),

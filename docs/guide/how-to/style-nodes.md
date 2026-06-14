@@ -41,7 +41,7 @@ Node("d", "Decision?", shape=Shape.diamond)
 | `Shape.hexagon` | Hexagon |
 | `Shape.cylinder` | Database cylinder |
 
-**Verify:** render all eight — run `python examples/quickstart.py` first to confirm the
+**Verify:** render all eight — run `python examples/01_quickstart.py` first to confirm the
 names, then drop the same nodes into a notebook to see each shape.
 
 ## Set fill, border, and size
