@@ -1,0 +1,7 @@
+flowchart TD
+    start([Start]) --> input[/Input/]
+    input --> proc[Process]
+    proc --> store[(Store)]
+    proc --> check{OK?}
+    check -->|yes| done([Done])
+    check -->|no| input

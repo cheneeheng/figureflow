@@ -1,0 +1,7 @@
+flowchart LR
+    pr[Open PR] --> ci[CI]
+    ci --> review[Code Review]
+    review --> merge{Approved?}
+    merge -->|yes| main[Merge to main]
+    merge -->|no| review
+    main --> release([Release])

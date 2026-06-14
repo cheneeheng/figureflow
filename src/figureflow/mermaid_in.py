@@ -270,8 +270,11 @@ def _parse(
     subgraph_count = 0
 
     def effective_parent() -> Optional[str]:
+        # The outermost stack entry is always a real gid (None is only ever
+        # pushed *after* it, for a flattened nested subgraph), so the first
+        # non-None is always at index 0 — the skip arc is defensive.
         for g in group_stack:
-            if g is not None:
+            if g is not None:  # pragma: no branch
                 return g
         return None
 
@@ -377,7 +380,7 @@ def _parse(
         if err:
             problems.append(err)
             continue
-        if not tokens:
+        if not tokens:  # pragma: no cover - defensive; blank lines filtered above
             continue
 
         last_ids: Optional[List[str]] = None

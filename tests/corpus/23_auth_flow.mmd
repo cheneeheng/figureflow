@@ -1,0 +1,7 @@
+flowchart TD
+    req[Request] --> token{Valid token?}
+    token -->|yes| allow[Allow]
+    token -->|no| refresh{Can refresh?}
+    refresh -->|yes| reauth[Re-auth]
+    refresh -->|no| deny[401 Deny]
+    reauth --> allow

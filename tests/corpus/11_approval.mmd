@@ -1,0 +1,6 @@
+flowchart TD
+    submit[Submit Request] --> review{Manager review}
+    review -->|approve| finance{Finance review}
+    review -->|reject| done[Rejected]
+    finance -->|approve| pay[Process Payment]
+    finance -->|reject| done

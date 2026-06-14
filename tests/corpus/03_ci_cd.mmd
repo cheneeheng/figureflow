@@ -1,0 +1,6 @@
+flowchart LR
+    commit[Commit] --> build[Build]
+    build --> test{Tests pass?}
+    test -->|yes| deploy[Deploy]
+    test -->|no| fix[Fix]
+    fix --> commit
