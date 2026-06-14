@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-06-14
+
+Test-only release; no behavior or API changes.
+
+### Changed
+
+- Closed the remaining branch-coverage gaps in the test suite (idempotent
+  `display()` rebind, `send_state` with partial meta, edges-only
+  `handle_change`, a no-nonce layout request, and `stop()` with no server
+  thread). The suite is now at 100% statement **and** branch coverage.
+
+[2.0.1]: https://github.com/cheneeheng/figureflow/releases/tag/v2.0.1
+
 ## [2.0.0] - 2026-06-14
 
 Multi-transport release. The same renderer now ships through three doors —
