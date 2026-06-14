@@ -329,6 +329,15 @@ function App({ transport }) {
   // Tracks loaded L3 dynamic components: { nodeTypes: {}, edgeTypes: {} }
   const [dynTypes, setDynTypes] = React.useState({ nodeTypes: {}, edgeTypes: {} });
   const loadedModulesRef = React.useRef({ node: {}, edge: {} });
+  // Per-mount cache-buster for dynamic import(): the browser keys its module map
+  // by URL, so a `data:`/blob L3 module is evaluated once and binds React from
+  // globalThis.figureflow at that moment. On a notebook rerun/kernel-restart the
+  // bundle re-evaluates with a fresh React, but the cached module keeps the stale
+  // one — rendering its hooked nodes (Handle) then throws and blanks the canvas.
+  // A unique import fragment forces a re-evaluation against the current React.
+  const importNonceRef = React.useRef(
+    `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+  );
 
   // Merged type maps — stable unless registrations change.
   const nodeTypes = React.useMemo(
@@ -378,7 +387,8 @@ function App({ transport }) {
           continue;
         }
         try {
-          const mod = await import(/* @vite-ignore */ url);
+          const bust = (url.includes("#") ? "&" : "#") + "ff=" + importNonceRef.current;
+          const mod = await import(/* @vite-ignore */ url + bust);
           const comp = mod.default;
           loadedModulesRef.current[kind][name] = comp;
           loaded[name] = comp;

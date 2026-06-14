@@ -41,7 +41,7 @@ title=None) -> str`** (replace the stub):
 - Read the prebuilt `static/widget.js` and `widget.css` from the package and the
   shared `static/host.html` template — a page shell with substitution points for
   head assets (inlined here, linked by the server) and adapter selection, so both
-  modes reuse one template (introduced here; the server consumes it in ITER_V2_03).
+  modes reuse one template (introduced here; the server consumes it in a later iteration).
 - Produce one HTML string with: the CSS inlined in a `<style>`, the bundle inlined
   in a `<script>`, the diagram JSON in a **`<script type="application/json"
   id="figureflow-state">`** island (a data island, *not* a string literal — avoids

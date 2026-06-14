@@ -7,6 +7,15 @@ streams) is transient infrastructure, not model state. Concurrency is guarded by
 the single ``synccore.LOCK``; the echo loop is handled by reusing
 ``synccore.is_echo`` rather than inventing server-specific logic (SKELETON_V2 §04,
 ITER_V2_03).
+
+ITER_V2_04 pins the wire contract: every state broadcast is a **patch envelope**
+``{client_id, seq, nodes?, edges?}`` (full-array replacement) stamped with the
+originator and a monotonic ``server_seq`` allocated under the sync-core lock;
+echo suppression on this asynchronous path is identity-based (the browser drops
+its own envelopes; duplicate POST delivery is dropped here via the
+``is_echo`` identity overload), and ``GET /state`` wraps the snapshot with the
+``server_seq`` read atomically with it so clients can close the snapshot/stream
+bootstrap gap by ordering alone.
 """
 
 from __future__ import annotations
@@ -25,15 +34,15 @@ from figureflow.transport.static_export import _STATIC, render_host_page
 if TYPE_CHECKING:
     from figureflow import Flow
 
-# Top-level await is valid in a module script: fetch the initial snapshot so the
-# server adapter can answer getState() synchronously when the renderer mounts.
+# Top-level await is valid in a module script: the async factory runs the
+# events-first bootstrap (open /events, buffer, fetch /state, drain by seq —
+# ITER_V2_04 §05) and resolves once getState() can answer synchronously.
 _SERVER_BOOTSTRAP = """
-const initial = await (await fetch("/state")).json();
-const transport = globalThis.figureflow.createServerTransport(initial);
+const transport = await globalThis.figureflow.createServerTransport();
 globalThis.figureflow.mount(
   document.getElementById("figureflow-root"),
   transport,
-  { height: initial.height }
+  { height: transport.getState().meta.height }
 );
 """.strip()
 
@@ -58,7 +67,14 @@ class ServerAdapter(Transport):
         # Connected SSE streams as message queues, guarded by their own lock.
         self._streams: set[queue.Queue[Optional[str]]] = set()
         self._streams_lock = threading.Lock()
-        self._last_from_client: Optional[synccore.State] = None
+        # ITER_V2_04 sequence state, mutated only under synccore.LOCK:
+        # one monotonic counter for the whole server, and the highest client
+        # seq applied per client_id (the identity echo-guard's memory).
+        self._server_seq = 0
+        self._applied: Dict[str, int] = {}
+        # Set (per request thread) while handle_change commits, so the trait
+        # observer knows that commit broadcasts its own stamped envelope.
+        self._pending = threading.local()
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
         self._url = ""
@@ -76,8 +92,15 @@ class ServerAdapter(Transport):
         edges: List[Dict[str, Any]],
         meta: Dict[str, Any],
     ) -> None:
-        """Push canonical state down by broadcasting an SSE ``state`` message."""
-        self._broadcast({"kind": "state", "nodes": nodes, "edges": edges})
+        """Push canonical state down as a ``"python"``-origin patch envelope.
+
+        Seq allocation and enqueue happen atomically under the sync-core lock
+        so envelopes always enter every stream queue in ``seq`` order
+        (ITER_V2_04 §04).
+        """
+        with synccore.LOCK:
+            self._server_seq += 1
+            self._broadcast_envelope("python", self._server_seq, nodes, edges)
 
     def on_change(self, handler: ChangeHandler) -> None:
         """Register an optional listener for committed edits.
@@ -109,16 +132,14 @@ class ServerAdapter(Transport):
         self._url = f"http://{self._host}:{httpd.server_address[1]}"
 
         def _on_state(_change: Any) -> None:
-            # Reentrancy: this observer fires synchronously inside handle_change
-            # while synccore.LOCK is held, so it must NOT re-acquire it. is_echo
-            # drops the origin client's own edit; Python-side edits broadcast.
-            current: synccore.State = {
-                "nodes": list(flow.nodes),
-                "edges": list(flow.edges),
-            }
-            if synccore.is_echo(current, self._last_from_client):
+            # Reentrancy: during a POST commit this fires synchronously inside
+            # handle_change while it holds synccore.LOCK (same thread), and
+            # handle_change broadcasts its own client-stamped envelope — so
+            # skip. Only kernel-side edits (add_node/group/...) broadcast here,
+            # stamped "python" by send_state (ITER_V2_04 §04).
+            if getattr(self._pending, "origin", None) is not None:
                 return
-            self.send_state(current["nodes"], current["edges"], {})
+            self.send_state(list(flow.nodes), list(flow.edges), {})
 
         def _on_layout(_change: Any) -> None:
             req = flow._layout_request
@@ -184,37 +205,71 @@ class ServerAdapter(Transport):
         )
 
     def state_json(self) -> str:
-        """The ``GET /state`` body: the initial ``to_json`` snapshot."""
+        """The ``GET /state`` body: ``{"server_seq": <int>, "state": <to_json>}``.
+
+        The seq is read under the lock *with* the snapshot (one atomic view), so
+        the client can drop buffered SSE envelopes with ``seq <= server_seq``
+        and close the snapshot/stream bootstrap gap by ordering alone
+        (ITER_V2_04 §04).
+        """
         from figureflow.serialize import to_json
 
         with synccore.LOCK:
-            return to_json(self._require_flow())
+            snapshot = to_json(self._require_flow())
+            seq = self._server_seq
+        return json.dumps({"server_seq": seq, "state": json.loads(snapshot)})
 
     def handle_change(self, patch: Dict[str, Any]) -> None:
-        """Apply a ``POST /change`` body to the canonical ``Flow``.
+        """Apply a ``POST /change`` patch envelope to the canonical ``Flow``.
 
         A ``{"op": "event", ...}`` body is a custom-component event routed to the
-        v1 ``on()`` handlers. Otherwise the patch carries full ``nodes``/``edges``
-        arrays: they are written under the lock as a single batched notification,
-        and the resulting push is dropped as an echo so it is not re-sent to the
-        origin client.
+        v1 ``on()`` handlers. Otherwise the envelope carries full replacement
+        ``nodes``/``edges`` arrays plus the originator's ``client_id``/``seq``
+        (ITER_V2_04 §04): duplicate POST delivery is dropped via the identity
+        echo-guard, the commit is written under the lock as a single batched
+        notification, and the resulting broadcast is stamped with the
+        originating ``client_id`` so that client can self-suppress it.
         """
         if patch.get("op") == "event":
             self._dispatch_event(patch.get("name"), patch.get("payload"))
             return
+        if patch.get("nodes") is None and patch.get("edges") is None:
+            return  # nothing to commit
         flow = self._require_flow()
+        client_id = str(patch.get("client_id") or "anonymous")
+        client_seq = patch.get("seq")
         with synccore.LOCK:
+            if synccore.is_echo(
+                client_id=client_id,
+                seq=client_seq if isinstance(client_seq, int) else None,
+                applied=self._applied,
+            ):
+                return  # duplicate POST delivery — already applied
+            if isinstance(client_seq, int):
+                self._applied[client_id] = client_seq
+            self._server_seq += 1
+            server_seq = self._server_seq
             expected: synccore.State = {
                 "nodes": patch["nodes"] if patch.get("nodes") is not None else list(flow.nodes),
                 "edges": patch["edges"] if patch.get("edges") is not None else list(flow.edges),
             }
-            self._last_from_client = expected
-            # Batch so observers see the final state once (no intermediate push).
-            with flow.hold_trait_notifications():
-                if patch.get("nodes") is not None:
-                    flow.nodes = patch["nodes"]
-                if patch.get("edges") is not None:
-                    flow.edges = patch["edges"]
+            # Mark this thread's commit so _on_state (which fires inside the
+            # hold-block exit, lock still held) does not double-broadcast.
+            self._pending.origin = (client_id, server_seq)
+            try:
+                # Batch so observers see the final state once (no intermediate push).
+                with flow.hold_trait_notifications():
+                    if patch.get("nodes") is not None:
+                        flow.nodes = patch["nodes"]
+                    if patch.get("edges") is not None:
+                        flow.edges = patch["edges"]
+            finally:
+                self._pending.origin = None
+            # Mutate-then-snapshot-then-enqueue under the lock; the socket
+            # write happens on each stream's own handler thread (ITER_V2_04).
+            self._broadcast_envelope(
+                client_id, server_seq, expected["nodes"], expected["edges"]
+            )
         if self._handler is not None:
             self._handler(expected)
 
@@ -230,7 +285,22 @@ class ServerAdapter(Transport):
         with self._streams_lock:
             self._streams.discard(q)
 
+    def _broadcast_envelope(
+        self,
+        client_id: str,
+        seq: int,
+        nodes: List[Dict[str, Any]],
+        edges: List[Dict[str, Any]],
+    ) -> None:
+        """Enqueue a stamped patch envelope (the ITER_V2_04 §04 wire shape)."""
+        self._broadcast(
+            {"client_id": client_id, "seq": seq, "nodes": nodes, "edges": edges}
+        )
+
     def _broadcast(self, message: Dict[str, Any]) -> None:
+        # SSE framing: ``data:`` must carry single-line JSON — never pass
+        # ``indent`` here; a newline inside ``data:`` silently truncates the
+        # event (ITER_V2_04 §04).
         data = json.dumps(message)
         with self._streams_lock:
             streams = list(self._streams)

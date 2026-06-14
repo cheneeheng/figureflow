@@ -1,11 +1,11 @@
-"""display_targets.py — one Flow, three transports: display() / to_html() / serve().
+"""05_display_targets.py — one Flow, three transports: display() / to_html() / serve().
 
 The same diagram ships to a notebook, a frozen offline file, or a live browser tab
 through the v2 transport seam. Run it as a script to write a static snapshot and
 (optionally) start the live server:
 
-    python examples/display_targets.py            # writes diagram.html
-    python examples/display_targets.py --serve    # also serves a live browser tab
+    python examples/05_display_targets.py            # writes diagram.html
+    python examples/05_display_targets.py --serve    # also serves a live browser tab
 
 Or paste the diagram into a notebook cell and end the cell with ``flow`` to render it
 (that auto-render is exactly what ``flow.display()`` returns).
@@ -44,12 +44,15 @@ if __name__ == "__main__":
     print("Flow.from_json(open('figureflow.json').read()) reimports that layout.")
 
     # 3) Server door — live bidirectional sync in a plain browser tab (localhost only).
+    # One live adapter per Flow at a time (ITER_V2_04): `flow` above is bound to
+    # the notebook door by display(), so the live server gets its own Flow.
     if "--serve" in sys.argv:
-        url = flow.serve()  # prints + returns the URL; opens the browser
-        print(f"Serving live at {url} — drag a node, then check flow.positions().")
+        live = build()
+        url = live.serve()  # prints + returns the URL; opens the browser
+        print(f"Serving live at {url} — drag a node, then check live.positions().")
         try:
             input("Press Enter to stop the server...\n")
         finally:
-            flow.stop()
+            live.stop()
     else:
         print("Pass --serve to also start the live server (flow.serve()).")

@@ -453,9 +453,12 @@ class TestServe:
         url = flow.serve(open_browser=False)
         try:
             assert url.startswith("http://127.0.0.1:")
-            state = json.loads(self._get(url + "/state").read())
-            assert state["schema"] == "figureflow/1"
-            assert [n["id"] for n in state["nodes"]] == ["a"]
+            # ITER_V2_04: /state wraps the snapshot with the server_seq read
+            # atomically with it (bootstrap ordering contract).
+            wrapped = json.loads(self._get(url + "/state").read())
+            assert wrapped["server_seq"] == 0
+            assert wrapped["state"]["schema"] == "figureflow/1"
+            assert [n["id"] for n in wrapped["state"]["nodes"]] == ["a"]
 
             page = self._get(url + "/").read().decode()
             assert "createServerTransport" in page
@@ -762,12 +765,15 @@ class TestServerAdapterUnit:
         a = self._adapter(Flow())
         assert a.stop() is None  # _httpd is None → early return
 
-    def test_send_state_broadcasts_to_streams(self):
+    def test_send_state_broadcasts_python_envelope(self):
+        # ITER_V2_04: state broadcasts are patch envelopes stamped with the
+        # originator ("python" for kernel-side pushes) and the server_seq.
         a = self._adapter(Flow())
         q = a.register_stream()
         a.send_state([{"id": "x"}], [], {})
         msg = json.loads(q.get_nowait())
-        assert msg["kind"] == "state"
+        assert msg["client_id"] == "python"
+        assert msg["seq"] == 1
         assert msg["nodes"] == [{"id": "x"}]
 
     def test_on_change_handler_and_emit_broadcast(self):
@@ -890,9 +896,10 @@ class TestServerLive:
         adapter = flow._transport
         q = adapter.register_stream()
         try:
-            flow.add_node(Node("b"))  # non-echo Python edit → _on_state broadcast
+            flow.add_node(Node("b"))  # Python edit → "python"-stamped envelope
             msg = json.loads(q.get(timeout=2))
-            assert msg["kind"] == "state"
+            assert msg["client_id"] == "python"
+            assert msg["seq"] == 1
             assert [n["id"] for n in msg["nodes"]] == ["a", "b"]
         finally:
             flow.stop()
@@ -1060,3 +1067,152 @@ class TestServerLive:
         time.sleep(0.3)
         flow.stop()
         assert adapter._httpd is None
+
+
+# ─── ITER_V2_04 — sync hardening (envelope, identity echo, exclusivity) ──────
+
+class TestSyncHardening:
+    def _adapter(self, flow):
+        from figureflow.transport.server_adapter import ServerAdapter
+
+        a = ServerAdapter(open_browser=False)
+        a.bind(flow)
+        return a
+
+    def test_is_echo_identity_overload(self):
+        from figureflow import synccore
+
+        applied = {"c1": 3}
+        # At or below the highest applied seq → duplicate delivery → echo.
+        assert synccore.is_echo(client_id="c1", seq=3, applied=applied) is True
+        assert synccore.is_echo(client_id="c1", seq=2, applied=applied) is True
+        # A fresh seq, or an unseen client, is a genuine new edit.
+        assert synccore.is_echo(client_id="c1", seq=4, applied=applied) is False
+        assert synccore.is_echo(client_id="c9", seq=1, applied=applied) is False
+
+    def test_is_echo_identity_unstamped_is_not_echo(self):
+        from figureflow import synccore
+
+        # An envelope without a seq (e.g. hand-rolled curl) cannot be a dupe.
+        assert synccore.is_echo(client_id="c1", seq=None, applied={}) is False
+
+    def test_handle_change_broadcast_stamped_with_originator(self):
+        flow = Flow([Node("a")])
+        a = self._adapter(flow)
+        q = a.register_stream()
+        a.handle_change(
+            {
+                "client_id": "browser-1",
+                "seq": 1,
+                "nodes": [{"id": "z", "position": {"x": 0, "y": 0}, "data": {}}],
+            }
+        )
+        msg = json.loads(q.get_nowait())
+        assert msg["client_id"] == "browser-1"  # originator, for self-suppression
+        assert msg["seq"] == 1  # first committed change → server_seq 1
+
+    def test_duplicate_post_delivery_dropped(self):
+        flow = Flow([Node("a")])
+        a = self._adapter(flow)
+        q = a.register_stream()
+        env = {
+            "client_id": "c",
+            "seq": 1,
+            "nodes": [{"id": "z", "position": {"x": 1, "y": 2}, "data": {}}],
+        }
+        a.handle_change(env)
+        a.handle_change(dict(env))  # duplicate delivery of the same envelope
+        assert q.qsize() == 1  # committed and broadcast exactly once
+        assert a._server_seq == 1
+
+    def test_empty_patch_commits_nothing(self):
+        flow = Flow([Node("a")])
+        a = self._adapter(flow)
+        q = a.register_stream()
+        a.handle_change({})  # no nodes/edges → nothing to commit
+        assert q.qsize() == 0
+        assert a._server_seq == 0
+        assert [n["id"] for n in flow.nodes] == ["a"]
+
+    def test_concurrent_posts_server_seq_strictly_increases(self):
+        # Plan verification (6): hammer /change from two concurrent loops —
+        # no corruption, server_seq strictly increases (lock check).
+        import threading
+
+        flow = Flow([Node("a")])
+        a = self._adapter(flow)
+        q = a.register_stream()
+        n = 50
+
+        def hammer(cid):
+            for i in range(n):
+                a.handle_change(
+                    {
+                        "client_id": cid,
+                        "seq": i + 1,
+                        "nodes": [
+                            {"id": cid, "position": {"x": i, "y": 0}, "data": {}}
+                        ],
+                    }
+                )
+
+        threads = [
+            threading.Thread(target=hammer, args=(cid,)) for cid in ("c1", "c2")
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        seqs = []
+        while not q.empty():
+            seqs.append(json.loads(q.get_nowait())["seq"])
+        # Seq allocation and enqueue are atomic under the lock, so the stream
+        # sees a strictly increasing, gapless sequence.
+        assert seqs == list(range(1, 2 * n + 1))
+        assert a._server_seq == 2 * n
+
+    def test_serve_while_displayed_warns(self):
+        # Plan verification (7): adapter exclusivity is a warning, not an error.
+        flow = Flow([Node("a")]).display()
+        with pytest.warns(UserWarning, match="one live adapter"):
+            flow.serve(open_browser=False)
+        flow.stop()
+
+    def test_display_while_served_warns_and_keeps_server(self):
+        from figureflow.transport.server_adapter import ServerAdapter
+
+        flow = Flow([Node("a")])
+        flow.serve(open_browser=False)
+        try:
+            with pytest.warns(UserWarning, match="one live adapter"):
+                flow.display()
+            # The server stays bound so stop() still reaches it.
+            assert isinstance(flow._transport, ServerAdapter)
+        finally:
+            flow.stop()
+
+    def test_script_mode_serves_without_warnings(self):
+        # Plan verification (4): kernel-less `python script.py` works with no
+        # comm-related warnings (warnings escalated to errors in the child).
+        import subprocess
+        import sys
+
+        code = (
+            "import warnings;"
+            "warnings.simplefilter('error', UserWarning);"
+            "warnings.simplefilter('error', RuntimeWarning);"
+            "from figureflow import Flow, Node;"
+            "f = Flow([Node('a')]);"
+            "url = f.serve(open_browser=False);"
+            "f.add_node(Node('b'));"
+            "f.stop();"
+            "print('ok')"
+        )
+        out = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert out.returncode == 0, out.stderr
+        assert "ok" in out.stdout

@@ -1,8 +1,8 @@
-"""grouping_layout.py — group() bundles nodes; layout() auto-arranges with dagre.
+"""02_grouping_layout.py — group() bundles nodes; layout() auto-arranges with dagre.
 
 Run it as a script to print the group id and the arranged coordinates:
 
-    python examples/grouping_layout.py
+    python examples/02_grouping_layout.py
 
 Or paste this into a notebook cell and end the cell with ``flow`` to render the
 interactive widget.

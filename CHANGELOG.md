@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-06-14
+
+Multi-transport release. The same renderer now ships through three doors —
+`display()` (notebook), `to_html()` (offline interactive snapshot), and
+`serve()` / `stop()` (live browser tab over a dependency-free stdlib SSE+POST
+server) — built on a shared transport seam. The front-end remains a prebuilt,
+vendored, offline bundle.
+
+### Added
+
+- **Transport seam** — one renderer behind three transports, selected from Python:
+  - `Flow.display()` renders the widget in any Jupyter host (returns `self`).
+  - `Flow.to_html(path=...)` writes a self-contained, offline-interactive HTML
+    snapshot with a "Download JSON" affordance.
+  - `Flow.serve()` / `Flow.stop()` run a live, bidirectional browser tab over a
+    dependency-free stdlib `ThreadingHTTPServer` (SSE `GET /events` down,
+    `POST /change` up; localhost only).
+- **Hardened server sync** — a pinned patch envelope (`client_id` + `seq`,
+  full-array replacement), identity-based echo suppression, queue-based SSE
+  writes, an events-first bootstrap that closes the snapshot/stream gap, and
+  one-live-adapter-per-`Flow` scoping (`UserWarning` otherwise).
+- **All-in-one examples notebook** — `examples/examples.ipynb` collects every
+  example in one runnable notebook that renders each widget inline.
+
+### Changed
+
+- **Examples renumbered** `01_`–`05_`; the custom-component examples are merged
+  into `04_custom_component.py`, demonstrating both notebook-safe handler
+  patterns (collect-to-list and live `ipywidgets.Output`). README and the
+  `docs/guide/` cross-references were updated to match.
+
+### Fixed
+
+- **L3 custom components rerun blank** — the dynamically imported component
+  module is now cache-busted per mount so it re-binds React from
+  `globalThis.figureflow` on every notebook rerun / kernel restart. Previously
+  the cached module stranded the old React, causing an invalid-hook-call and a
+  blank canvas on any rerun.
+- **Duplicate event prints** — the custom-component example no longer stacks
+  multiple printing `on("clicked", ...)` handlers, so one click prints once.
+
+[2.0.0]: https://github.com/cheneeheng/figureflow/releases/tag/v2.0.0
+
 ## [1.0.0] - 2026-06-05
 
 First stable release. figureflow is a pip-installable [anywidget](https://anywidget.dev)

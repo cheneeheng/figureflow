@@ -399,8 +399,22 @@ class Flow(anywidget.AnyWidget):
         Returns:
             ``self`` — the widget to render.
         """
-        from figureflow.transport.anywidget_adapter import AnywidgetAdapter
+        import warnings
 
+        from figureflow.transport.anywidget_adapter import AnywidgetAdapter
+        from figureflow.transport.server_adapter import ServerAdapter
+
+        if isinstance(self._transport, ServerAdapter):
+            # Adapter exclusivity (ITER_V2_04 §02): mechanically possible but
+            # officially unsupported; the server stays bound so stop() works.
+            warnings.warn(
+                "display() while serve() is running is unsupported in v0.2 — "
+                "one live adapter per Flow at a time; the notebook and browser "
+                "views will not stay in sync.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return self
         if self._transport is None:
             self._transport = AnywidgetAdapter()
             self._transport.bind(self)
@@ -447,8 +461,20 @@ class Flow(anywidget.AnyWidget):
         Returns:
             The served URL.
         """
+        import warnings
+
+        from figureflow.transport.anywidget_adapter import AnywidgetAdapter
         from figureflow.transport.server_adapter import ServerAdapter
 
+        if isinstance(self._transport, AnywidgetAdapter):
+            # Adapter exclusivity (ITER_V2_04 §02): warn and continue.
+            warnings.warn(
+                "serve() on a Flow that is displayed in a notebook is "
+                "unsupported in v0.2 — one live adapter per Flow at a time; "
+                "the notebook and browser views will not stay in sync.",
+                UserWarning,
+                stacklevel=2,
+            )
         # A second serve() stops the prior server first.
         if isinstance(self._transport, ServerAdapter):
             self._transport.stop()

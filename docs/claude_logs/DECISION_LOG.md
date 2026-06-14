@@ -108,3 +108,58 @@ and refreshed it to describe the implemented surface. Did not touch any executab
 **Decision:** Did NOT modify `skipHistoryRef` logic. It is pre-existing v1 behavior, preserved byte-for-byte by the seam refactor exactly as ITER_V2_01 requires; touching it would be an out-of-scope v1 change. Flagged to the user instead.
 
 **Impact / Risk:** None to v2 compliance. The flagged quirk, if confirmed a bug, belongs to a v1-scoped fix; left for the user to decide.
+
+### Entry 008
+
+**Type:** Decision
+**Mode:** Autonomous
+**Timestamp:** 2026-06-12T00:00:00Z
+**Task:** Implement ITER_V2_04 (sync hardening) — server-path sequencing mechanics.
+
+**Context:** Three mechanics the plan specifies by outcome but not by mechanism. (1) The plan says every committed change broadcasts a stamped envelope, but `traitlets` suppresses notifications when a client POSTs values equal to the current traits — relying on the trait observer to broadcast would silently skip a `server_seq`, making clients see a gap and re-fetch for nothing. Also the observer fires inside `handle_change`'s lock-held commit on the same thread, and `synccore.LOCK` is non-reentrant. (2) `is_echo`'s identity memory ("client_id+seq already applied") as a literal set of pairs grows unboundedly over a long session. (3) A `POST /change` with neither `nodes` nor `edges` previously wrote nothing but still invoked the on_change handler; under seq rules it would either burn a seq with no broadcast (gap) or broadcast a no-op.
+
+**Decision:** (1) `handle_change` allocates the seq and enqueues the stamped envelope itself, all under the one `synccore.LOCK` hold (mutate→snapshot→enqueue, per §04); the trait observer skips during a POST commit, signalled via a `threading.local` so only the committing thread sees the flag. Kernel-side edits broadcast through `send_state`, which atomically allocates-and-enqueues under the lock so queue order always equals seq order. (2) `applied` is a per-client highest-seq map (`Dict[str, int]`), valid because each client's counter is monotonic; duplicate = `seq <= applied[client_id]`. (3) An empty patch returns early — no seq, no broadcast, no handler call.
+
+**Impact / Risk:** (1) Broadcast no longer depends on traitlets equality semantics; a same-thread reentrancy hazard is structurally avoided. (2) A reordered *older* envelope from a client is dropped as a duplicate — correct here, since applying an older full-array replacement over a newer one would corrupt. (3) Handler semantics narrowed from "observes each POST" to "observes each commit" — matches the docstring's intent.
+
+**Outcome:** 124 tests pass, including a two-thread `/change` hammer asserting a gapless strictly-increasing seq stream, and an end-to-end HTTP smoke test of the stamped envelope.
+
+### Entry 009
+
+**Type:** Decision
+**Mode:** Autonomous
+**Timestamp:** 2026-06-12T00:00:00Z
+**Task:** Implement ITER_V2_04 — scope calls outside the diff's mechanical core.
+
+**Context:** (1) §02 says exclusivity violations "warn and continue" but not what `display()` should leave bound when a server is live. (2) The plan's §05 describes client identity/buffering "in a useRef", but this codebase constructs the server transport once in the host bootstrap (top-level await), outside React. (3) The user-level instruction says "no tests unless asked", yet the plan ships a numbered Verification step and the changed wire format breaks existing test assertions. (4) `examples/display_targets.py` called `display()` then `serve()` on one Flow — newly a `UserWarning`.
+
+**Decision:** (1) `display()` warns and returns `self` *without* rebinding, keeping the `ServerAdapter` as `_transport` so a later `stop()` still reaches the running server (rebinding would leak it). (2) Implemented identity + bootstrap inside the async `createServerTransport` factory: created exactly once per page, it satisfies the useRef intent (no double-mint under StrictMode) without restructuring the mount. (3) Updated the assertions the new wire format invalidated and added tests for the plan's scriptable verification items (4, 6, 7); browser-interactive items (1–3, 5) are not automatable here and are listed for manual verification. (4) The example now serves a fresh `Flow` and the guide documents the one-live-adapter rule.
+
+**Impact / Risk:** `to_html()` remains warning-free in every combination (static export is exempt per §02). The `_SERVER_BOOTSTRAP` page script changed shape; anyone scraping the old `fetch("/state")`-first page would notice, but the page is served, never persisted.
+
+**Outcome:** Suite green (124 passed); example runs clean in script mode.
+
+### Entry 010
+
+**Type:** Decision
+**Mode:** Autonomous
+**Timestamp:** 2026-06-14T00:00:00Z
+**Task:** Renumber examples; merge custom-component examples; pan UX; serve() warning.
+
+**Context:** User asked to number the example files (01_, 02_, ...). Leading-digit
+module names break the previously-documented `from examples.quickstart import flow`
+pattern (a syntax error). Also had to choose a pan-activation mechanism for "Ctrl+drag
+to pan, plain drag to select".
+**Decision:** (1) Numbered files `01_..05_` as requested; switched the examples/README
+"display the prebuilt flow" path from a direct import to `importlib.util` by path, and
+documented why. (2) Merged custom_component{,_collect,_output}.py into one
+`04_custom_component.py` showing the base handler + patterns A/B. (3) Pan: added
+React Flow `panActivationKeyCode=["Control","Meta"]` (kept `panOnDrag=[1,2]` for
+middle/right) + existing `selectionOnDrag=true`, so plain drag box-selects and
+Ctrl/Cmd+drag pans; rebuilt widget.js. (4) The `url.parse()` DeprecationWarning is not
+from figureflow (no `url.parse` in the tree) — it originates from the Node-based OS
+browser launcher that Python's `webbrowser.open()` shells out to under WSL.
+**Impact / Risk:** Numbered modules are no longer importable by dotted name (documented).
+Pan keybinding overlaps Ctrl used for undo/copy, but those are keydown combos and do not
+conflict with hold-Ctrl-drag panning.
+**Outcome:** All examples compile and run; bundle rebuilt (385.6kb).

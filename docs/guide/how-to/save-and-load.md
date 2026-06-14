@@ -104,5 +104,5 @@ Re-register your types before (or right after) loading.
 
 ## See also
 
-- The runnable example: [`examples/serialization.py`](../../../examples/serialization.py).
+- The runnable example: [`examples/03_serialization.py`](../../../examples/03_serialization.py).
 - [Reference → Serialization](../reference.md#serialization-methods).

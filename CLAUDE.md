@@ -20,8 +20,12 @@ multi-select + within-canvas styled copy/paste, minimap, canvas undo/redo, group
 auto-layout, JSON save/load + mermaid export, and the L3 custom-component escape hatch
 (`emit`/`on`). SKELETON_V2 + ITER_V2_01–03 then added the **transport seam**: one renderer
 behind three doors — `display()` (notebook), `to_html()` (offline interactive snapshot), and
-`serve()`/`stop()` (live browser tab over a dependency-free stdlib SSE+POST server). No
-`NotImplementedError` stubs remain; `docs/planning/` is the historical record.
+`serve()`/`stop()` (live browser tab over a dependency-free stdlib SSE+POST server).
+ITER_V2_04 hardened the server sync path: a pinned patch envelope (`client_id` + `seq`,
+full-array replacement), identity-based echo suppression, queue-based SSE writes, an
+events-first bootstrap that closes the snapshot/stream gap, and one-live-adapter-per-Flow
+scoping (`UserWarning` otherwise). No `NotImplementedError` stubs remain; `docs/planning/`
+is the historical record.
 
 ## Layout
 
@@ -40,7 +44,7 @@ src/figureflow/
     base.py               # Transport ABC: bind/send_state/on_change/emit/start/stop
     anywidget_adapter.py  # notebook (ITER_V2_01)
     static_export.py      # to_html() + shared host-page renderer (ITER_V2_02)
-    server_adapter.py     # ThreadingHTTPServer SSE+POST (ITER_V2_03)
+    server_adapter.py     # ThreadingHTTPServer SSE+POST (ITER_V2_03, hardened in ITER_V2_04)
   static/
     widget.js             # PREBUILT esbuild bundle (checked in)
     widget.css            # container sizing only (xyflow CSS is bundled into widget.js)
@@ -49,7 +53,7 @@ src/figureflow/
 examples/                 # runnable examples (quickstart, grouping_layout, serialization, custom_component, display_targets)
 tests/                    # pytest suite (to_dict, positions, group, JSON round-trip, mermaid, transport seam)
 docs/guide/               # end-user manual (getting started → display anywhere → custom components)
-docs/planning/            # v1: SKELETON.md + ITER_01..06.md; v2: SKELETON_V2.md + ITER_V2_01..03.md
+docs/planning/            # v1: SKELETON.md + ITER_01..06.md; v2: SKELETON_V2.md + ITER_V2_01..04.md
 ```
 
 ## Commands

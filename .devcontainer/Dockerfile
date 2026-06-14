@@ -73,7 +73,8 @@ ENV PATH="/home/ubuntu/.local/bin:${PATH}"
 
 # Python venv setup
 RUN uv python install 3.12.13
-# RUN uv venv backend/.venv
+RUN uv venv --prompt .venv .venv
+RUN uv python pin 3.12
 
 # Python cache
 ENV PYTHONPYCACHEPREFIX=/tmp/pycache

@@ -1,8 +1,8 @@
-"""serialization.py — lossless to_json / from_json round-trip + lossy to_mermaid.
+"""03_serialization.py — lossless to_json / from_json round-trip + lossy to_mermaid.
 
 Run it as a script to perform the round-trip and print the mermaid export:
 
-    python examples/serialization.py
+    python examples/03_serialization.py
 
 Or paste the diagram into a notebook cell and end the cell with ``flow`` to render it.
 """

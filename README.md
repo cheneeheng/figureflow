@@ -174,10 +174,11 @@ text summary, so you can run it from a terminal — then drop the same code into
 
 ```bash
 pip install -e .                  # install figureflow first
-python examples/quickstart.py     # all 8 shapes + edge styles (+ L1 SVG / L2 HTML nodes)
-python examples/grouping_layout.py  # group() + dagre layout()
-python examples/serialization.py    # to_json / from_json round-trip + to_mermaid
-python examples/custom_component.py  # L3 custom JS node + emit/on events
+python examples/01_quickstart.py        # all 8 shapes + edge styles (+ L1 SVG / L2 HTML nodes)
+python examples/02_grouping_layout.py   # group() + dagre layout()
+python examples/03_serialization.py     # to_json / from_json round-trip + to_mermaid
+python examples/04_custom_component.py   # L3 custom JS node + emit/on events
+python examples/05_display_targets.py    # display() / to_html() / serve() (add --serve)
 ```
 
 See [`examples/README.md`](examples/README.md) for what each one demonstrates and how to view

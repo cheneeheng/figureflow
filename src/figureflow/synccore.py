@@ -53,23 +53,50 @@ def diff(prev: Optional[State], next: State) -> Optional[Patch]:
     return patch or None
 
 
-def is_echo(incoming: State, last_pushed: Optional[State]) -> bool:
+def is_echo(
+    incoming: Optional[State] = None,
+    last_pushed: Optional[State] = None,
+    *,
+    client_id: Optional[str] = None,
+    seq: Optional[int] = None,
+    applied: Optional[Dict[str, int]] = None,
+) -> bool:
     """Return ``True`` when an upstream change merely reflects our own push.
 
-    The Python-side half of the echo-guard: an edit coming up from the browser
-    that only mirrors a state we just sent down is dropped, not re-committed, so
-    push → client applies → client emits does not loop.
+    Two forms, one per channel kind (ITER_V2_04 §04):
+
+    **Content form** (positional ``incoming``/``last_pushed``) — the synchronous
+    anywidget path: an edit coming up from the browser that only mirrors a state
+    we just sent down is dropped, not re-committed, so push → client applies →
+    client emits does not loop.
+
+    **Identity form** (keyword ``client_id``/``seq``/``applied``) — the
+    asynchronous server path, where a client's own commit returns to it over
+    SSE and the flag/content guard cannot bracket the round-trip. Answers "is
+    this incoming envelope from a ``client_id``+``seq`` I have already
+    applied?", guarding against duplicate POST delivery. ``applied`` maps each
+    ``client_id`` to the highest ``seq`` committed from it — a bounded map
+    rather than a set of pairs, valid because each client's counter is
+    monotonic.
 
     Args:
-        incoming: The state an adapter received from the browser.
-        last_pushed: The most recent state this adapter pushed down, if any.
+        incoming: The state an adapter received from the browser (content form).
+        last_pushed: The most recent state this adapter pushed down, if any
+            (content form).
+        client_id: The originating client of an envelope (identity form).
+        seq: The originator's sequence number for the envelope (identity form).
+        applied: Per-client highest applied sequence numbers (identity form).
 
     Returns:
-        ``True`` if ``incoming``'s graph (``nodes``/``edges``) equals
-        ``last_pushed``'s and should be ignored; ``False`` if it is a genuine new
-        edit to commit (or there is nothing yet pushed to echo).
+        ``True`` if the change is our own push bouncing back (or a duplicate
+        delivery) and should be ignored; ``False`` if it is a genuine new edit
+        to commit.
     """
-    if last_pushed is None:
+    if client_id is not None:
+        if seq is None or applied is None:
+            return False
+        return seq <= applied.get(client_id, -1)
+    if incoming is None or last_pushed is None:
         return False
     return all(
         incoming.get(key) == last_pushed.get(key) for key in _GRAPH_KEYS
