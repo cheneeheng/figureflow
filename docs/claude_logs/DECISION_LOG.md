@@ -163,3 +163,23 @@ browser launcher that Python's `webbrowser.open()` shells out to under WSL.
 Pan keybinding overlaps Ctrl used for undo/copy, but those are keydown combos and do not
 conflict with hold-Ctrl-drag panning.
 **Outcome:** All examples compile and run; bundle rebuilt (385.6kb).
+
+### Entry 011
+
+**Type:** Decision
+**Mode:** Autonomous
+**Timestamp:** 2026-06-14T00:00:00Z
+**Task:** Ship 2.0.0: PR to main, merge, tag, release; update changelog.
+
+**Context:** User listed "open PR, merge, delete branch, update changelog (2.0.0),
+tag, release". Two unresolved forks: (1) where the changelog + version bump belong
+(in the PR vs a direct post-merge commit to main), and (2) whether to bump
+package.json, which sits at 0.1.0 while pyproject was 1.0.0.
+**Decision:** (1) Folded the CHANGELOG entry and the pyproject 2.0.0 bump into the
+release branch as a final commit so PR #6 is the complete 2.0.0 release, rather than
+committing to main after merge. (2) Left package.json at 0.1.0 — it is maintainer-only
+front-end build tooling, never in lockstep with the published library version; only
+pyproject.toml is the released manifest.
+**Impact / Risk:** Low. package.json version stays decoupled (intentional).
+**Outcome:** PR #6 merged (merge commit 0297298), branch deleted, tag v2.0.0 pushed,
+GitHub release created. CI was green before merge.
