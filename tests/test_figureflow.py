@@ -414,6 +414,13 @@ class TestDisplayAdapter:
         flow = Flow().display()
         assert isinstance(flow._transport, AnywidgetAdapter)
 
+    def test_display_idempotent_when_already_bound(self):
+        # Second display() finds _transport already set → reuses it (no rebind).
+        flow = Flow()
+        first = flow.display()._transport
+        assert flow.display() is flow
+        assert flow._transport is first
+
 
 class TestStaticExport:
     def _flow(self):
@@ -711,6 +718,13 @@ class TestAnywidgetAdapterFull:
         assert flow.fit_view is False
         assert flow.height == 700
 
+    def test_send_state_meta_without_keys_skips_them(self):
+        # Empty meta → every optional key (incl. height) takes the absent branch.
+        flow = Flow()
+        a = self._adapter(flow)
+        a.send_state([], [], {})
+        assert a._last_pushed == {"nodes": [], "edges": []}
+
     def test_on_change_drops_echo_reports_real(self):
         flow = Flow()
         a = self._adapter(flow)
@@ -815,6 +829,20 @@ class TestServerAdapterUnit:
         a.handle_change({})  # no nodes/edges → keep current
         assert [n["id"] for n in flow.nodes] == ["a"]
 
+    def test_handle_change_edges_only_leaves_nodes(self):
+        # nodes absent → skip the nodes write; only edges are replaced.
+        flow = Flow([Node("a")])
+        a = self._adapter(flow)
+        a.handle_change(
+            {
+                "client_id": "c",
+                "seq": 1,
+                "edges": [{"id": "e", "source": "a", "target": "a"}],
+            }
+        )
+        assert [n["id"] for n in flow.nodes] == ["a"]
+        assert [e["id"] for e in flow.edges] == ["e"]
+
     def test_register_and_unregister_stream(self):
         a = self._adapter(Flow())
         q = a.register_stream()
@@ -889,6 +917,26 @@ class TestServerLive:
             assert msg["name"] == "layout"
         finally:
             flow.stop()
+
+    def test_layout_request_without_nonce_is_not_broadcast(self):
+        flow = Flow([Node("a")])
+        flow.serve(open_browser=False)
+        adapter = flow._transport
+        q = adapter.register_stream()
+        try:
+            flow._layout_request = {"algo": "dagre"}  # no nonce → observer no-ops
+            assert q.empty()
+        finally:
+            flow.stop()
+
+    def test_stop_when_thread_already_none(self):
+        # Defensive branch: _httpd set but _thread None → stop() skips join().
+        flow = Flow([Node("a")])
+        flow.serve(open_browser=False)
+        adapter = flow._transport
+        adapter._thread = None
+        flow.stop()
+        assert adapter._httpd is None
 
     def test_python_edit_broadcasts_state(self):
         flow = Flow([Node("a")])

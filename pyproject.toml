@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "figureflow"
-version = "2.0.0"
+version = "2.0.1"
 description = "Interactive flow diagrams in Python, styled shape-by-shape."
 readme = "README.md"
 license = { file = "LICENSE" }
