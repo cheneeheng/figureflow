@@ -4,9 +4,10 @@ Runnable examples covering the main features. Each script **builds a diagram** a
 text summary, so you can run it from a terminal — then drop the same code into a notebook
 cell (ending with `flow`) to see the live, interactive widget.
 
-> **Prefer a notebook?** [`examples.ipynb`](examples.ipynb) collects all five examples in one
-> runnable notebook — open it in JupyterLab/Notebook/VS Code/Colab and run each section to see
-> the widget render inline.
+> **Prefer a notebook?** [`examples.ipynb`](examples.ipynb) collects the five interactive
+> examples (01–05) in one runnable notebook — open it in JupyterLab/Notebook/VS Code/Colab and
+> run each section to see the widget render inline. The v3 examples (06–08) are script-first;
+> run them from a terminal or paste their diagrams into a cell ending with `flow`.
 
 ## Setup
 
@@ -22,6 +23,9 @@ python examples/02_grouping_layout.py
 python examples/03_serialization.py
 python examples/04_custom_component.py
 python examples/05_display_targets.py     # add --serve for the live browser tab
+python examples/06_from_mermaid.py
+python examples/07_llm_ingestion.py
+python examples/08_mcp_server.py
 ```
 
 | Example | Demonstrates |
@@ -31,6 +35,9 @@ python examples/05_display_targets.py     # add --serve for the live browser tab
 | [`03_serialization.py`](03_serialization.py) | Lossless `to_json()` / `from_json()` round-trip and a lossy `to_mermaid()` export. |
 | [`04_custom_component.py`](04_custom_component.py) | The L3 escape hatch — a custom JS node registered via `register_node_type`, sending click events to Python through `emit` / `Flow.on`. Shows the two notebook-safe handler patterns: **A** collect payloads into a list to inspect in a later cell, and **B** route them into an `ipywidgets.Output` to watch live. |
 | [`05_display_targets.py`](05_display_targets.py) | One `Flow`, three transports: `display()` (notebook), `to_html()` (offline snapshot), and `serve()` (live browser tab). |
+| [`06_from_mermaid.py`](06_from_mermaid.py) | **v3** — `Flow.from_mermaid()` parses a flowchart (shapes, edge labels, `subgraph`→group) into a coordinate-free Flow the renderer auto-lays out on mount. |
+| [`07_llm_ingestion.py`](07_llm_ingestion.py) | **v3** — the repair loop: the `validate()` funnel collects *every* fault into one `FlowValidationError` (invalid shape + duplicate id + dangling edge) so an LLM fixes them together and re-emits once. |
+| [`08_mcp_server.py`](08_mcp_server.py) | **v3** — the `figureflow-mcp` stdio server (the `figureflow[mcp]` extra): its five tools and the client config that lets an agent and a human co-edit one live diagram. |
 
 ## Canvas controls
 
