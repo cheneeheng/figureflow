@@ -465,6 +465,9 @@ function App({ transport }) {
   const histRef = React.useRef({ past: [], redoStack: [] });
   // In-memory clipboard for within-canvas copy/paste.
   const clipboardRef = React.useRef(null);
+  // ReactFlow instance (captured onInit) so we can refit after auto-layout places
+  // unplaced nodes — the `fitView` prop only fits the initial render (ITER_V3_01).
+  const rfRef = React.useRef(null);
   // Tracks loaded L3 dynamic components: { nodeTypes: {}, edgeTypes: {} }
   const [dynTypes, setDynTypes] = React.useState({ nodeTypes: {}, edgeTypes: {} });
   const loadedModulesRef = React.useRef({ node: {}, edge: {} });
@@ -519,6 +522,9 @@ function App({ transport }) {
     skipHistoryRef.current = false;
     setNodes(placed);
     transport.pushChange({ nodes: placed });
+    // The initial fitView ran against the unplaced (degenerate) layout; refit once
+    // the placed nodes have rendered so the canvas frames them.
+    requestAnimationFrame(() => rfRef.current && rfRef.current.fitView());
   }, [nodes, transport]);
 
   // ── Layout request (Python pushes a "layout" event; dagre runs client-side) ─
@@ -767,6 +773,9 @@ function App({ transport }) {
       edgeTypes,
       onNodesChange,
       onEdgesChange,
+      onInit: (inst) => {
+        rfRef.current = inst;
+      },
       colorMode,
       fitView,
       onlyRenderVisibleElements: true,
