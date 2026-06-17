@@ -227,8 +227,9 @@ the live widget.
   building diagrams, the full style reference, canvas interactions, grouping & layout,
   serialization, custom components, and troubleshooting.
 - **Design & roadmap** — [`docs/planning/`](docs/planning): `SKELETON.md` + `ITER_01`–`ITER_06`
-  are the v1 target surface and its iterations; `SKELETON_V2.md` + `ITER_V2_01`–`ITER_V2_03`
-  add the multi-transport seam (`display()` / `to_html()` / `serve()`).
+  are the v1 target surface and its iterations; `SKELETON_V2.md` + `ITER_V2_01`–`ITER_V2_04`
+  add the multi-transport seam (`display()` / `to_html()` / `serve()`); `ITER_V3_01`–`ITER_V3_03`
+  add LLM-authorable ingestion (`from_json` / `from_mermaid`, the `figureflow/1` schema, MCP).
 
 ## Development
 
@@ -246,7 +247,9 @@ python -m pytest tests/  # run the test suite
 
 ## Out of MVP scope
 
-- Format *import* (parsing mermaid/DOT into figureflow) — export is supported.
+- DOT / Graphviz *import*, and mermaid diagram types beyond flowcharts
+  (sequence/class/state/gantt) — mermaid flowchart import (`from_mermaid`) and
+  mermaid/JSON export are supported.
 - System-clipboard / cross-application copy/paste — within-canvas only.
 - Undo/redo of programmatic Python edits — canvas-edit undo/redo is supported.
 - Heavy obstacle-avoiding edge routing — straight/step/smoothstep light routing is supported.

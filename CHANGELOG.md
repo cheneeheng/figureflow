@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-06-17
+
+LLM-authorable release. A diagram can now be authored **coordinate-free** from
+text an LLM already speaks — figureflow validates, places, and renders it. Three
+new ingestion paths (`from_json`, `from_mermaid`, and an optional MCP server) all
+funnel through one validator that collects every problem into a single
+repair-friendly error. Core `pip install figureflow` stays dependency-free.
+
+### Added
+
+- **One ingestion funnel** — every path that builds a `Flow` from external text
+  routes through a single `validate()` that *collects* all problems into one
+  `FlowValidationError` (one line each: `path: what's wrong. hint`) instead of
+  failing on the first, so a model can fix every fault in one round-trip.
+  `strict=True` escalates forgiving coercions/skips to hard errors.
+- **Optional node positions** — `Node(pos=None)` means *unplaced*; `to_dict()`
+  omits `position` and the renderer auto-lays unplaced nodes on mount via the new
+  `Flow(layout_direction=...)` trait (`TB` default, or `BT`/`LR`/`RL`).
+  `positions()` reports only placed nodes; explicit `pos=(x, y)` still works.
+- **`Flow.from_mermaid()`** — parses a pinned mermaid flowchart subset into a
+  live Flow: node shapes map from the bracket syntax, edge labels carry over, and
+  a `subgraph … end` block imports as a one-level group. Style directives are
+  warn-and-skipped; grammar violations raise `MermaidParseError`.
+- **Published `figureflow/1` JSON Schema** — ships in the wheel at
+  `figureflow/static/figureflow.schema.json`, alongside `llms.txt` (the library
+  in ~1 page for machine consumption) and a `docs/prompts/` few-shot pack
+  (JSON + mermaid emission and a repair-loop transcript).
+- **MCP server (optional `[mcp]` extra)** — a `figureflow-mcp` stdio console
+  script wraps `serve()` so an agent and a human edit the same live canvas,
+  exposing `create_diagram` / `get_diagram` / `replace_diagram` / `add_elements`
+  / `close_diagram`. It calls only the public surface; core install adds no deps.
+
+### Fixed
+
+- **Blank canvas after auto-layout** — the post-layout refit now waits until
+  React Flow has *measured* the placed nodes before calling `fitView`, instead of
+  firing on a single `requestAnimationFrame` that could beat the ResizeObserver
+  and frame a zero-size box.
+
+[3.0.0]: https://github.com/cheneeheng/figureflow/releases/tag/v3.0.0
+
 ## [2.0.1] - 2026-06-14
 
 Test-only release; no behavior or API changes.

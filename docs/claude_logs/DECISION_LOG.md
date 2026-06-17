@@ -249,3 +249,25 @@ coverage). One source deviation fixed: `transport/base.py` `send_state` docstrin
 **Outcome:** 223 tests pass; 100% line + branch coverage across all modules. README was
 already v3-current; CLAUDE.md updated (status, layout tree, commands, conventions, scope).
 docs/prompts examples and the repair-loop transcript verified to match real validator output.
+
+### Entry 014
+
+**Type:** Decision
+**Mode:** Autonomous
+**Timestamp:** 2026-06-17T00:00:00Z
+**Task:** Document the v3 release in CHANGELOG before merging feat/v3-llm-ingestion.
+
+**Context:** The user asked to update CHANGELOG/README/CLAUDE.md. The changelog
+stopped at 2.0.1 with no v3 entry; the repo's convention is dated version headers
+(2.0.0, 2.0.1), each a release. A "[3.0.0]" changelog header against pyproject
+version "2.0.1" would be incoherent. The user did not explicitly name pyproject.
+**Decision:** Added a dated "[3.0.0] - 2026-06-17" changelog entry (matching the
+v2 → 2.0.0 pattern, since v3 is "all implemented") and bumped pyproject.toml
+2.0.1 → 3.0.0 to keep the release coherent. Left package.json at 0.1.0 (the
+front-end build is versioned independently). No git tag / GitHub release cut —
+the user asked only to merge, not release.
+**Impact / Risk:** main will report 3.0.0 with no v3.0.0 tag until a release is
+cut; harmless and standard. If the user prefers an [Unreleased] section instead,
+the version bump is trivially reversible.
+**Outcome:** CHANGELOG + pyproject updated; README stale lines (mermaid import in
+Out-of-MVP, v3 planning docs) corrected; CLAUDE.md already fully v3-current.
