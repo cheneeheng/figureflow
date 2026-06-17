@@ -1,0 +1,86 @@
+# figureflow
+
+> A pip-installable anywidget library that renders interactive flow diagrams in any
+> Jupyter host or a plain browser tab. An LLM authors a diagram coordinate-free —
+> emit topology as JSON or mermaid; figureflow validates, places, and renders it.
+
+This file is the machine-readable summary. The authoritative JSON Schema ships in
+the wheel at `figureflow/static/figureflow.schema.json`.
+
+## Authoring a diagram
+
+Two input formats, both coordinate-free (omit positions — the renderer auto-lays
+nodes on mount using `layout_direction`):
+
+1. **JSON** — the `figureflow/1` envelope (see the schema file). Minimal example:
+
+   ```json
+   {
+     "schema": "figureflow/1",
+     "layout_direction": "TB",
+     "nodes": [
+       {"id": "a", "data": {"label": "Start", "shape": "stadium"}},
+       {"id": "b", "data": {"label": "Decide", "shape": "diamond"}}
+     ],
+     "edges": [{"source": "a", "target": "b", "label": "go"}]
+   }
+   ```
+
+   - Node shapes (`data.shape`): rectangle, rounded, stadium, ellipse, diamond,
+     parallelogram, hexagon, cylinder.
+   - `position` is optional. Omit it; do not invent coordinates.
+   - `layout_direction`: TB (default), BT, LR, RL.
+
+2. **mermaid flowchart** — the bounded subset figureflow imports:
+
+   | Construct | Forms |
+   | --- | --- |
+   | Header | `flowchart <dir>` / `graph <dir>`; dir `TB TD BT LR RL` (TD→TB; missing→TB) |
+   | Node shapes | `id[rect]` `id(rounded)` `id([stadium])` `id((ellipse))` `id{diamond}` `id{{hexagon}}` `id[/parallelogram/]` `id[(cylinder)]`; bare `id` |
+   | Labels | unquoted, `"quoted"`, `<br>`→newline; first definition wins |
+   | Edge ops | `-->` `---` `-.->` `-.-` `==>` `===` |
+   | Edge labels | `-->|label|` and `-- label -->` |
+   | Chains & fans | `a --> b --> c`; `a & b --> c` |
+   | Subgraph | `subgraph id [title] … end`, one level → a group |
+   | Comments | `%%` to end of line |
+
+   Other diagram types (sequence, class, state, gantt) are not imported.
+   `classDef`/`class`/`style`/`linkStyle`/`click` are warn-and-skipped (style
+   fidelity is out of scope — figureflow styling is per-element Python kwargs).
+
+## Error-message contract (the repair loop)
+
+`from_json` / `from_mermaid` collect **every** problem and raise one error,
+one problem per line:
+
+```
+<json-path>: <what is wrong>. <hint with valid alternatives>
+```
+
+e.g. `nodes[3].shape: 'circle' is not a valid shape. Use one of: rectangle,
+rounded, stadium, ellipse, diamond, parallelogram, hexagon, cylinder.` Paste the
+error back to fix all faults in one round-trip. `strict=True` escalates forgiving
+coercions/skips to errors.
+
+## MCP tools (`pip install 'figureflow[mcp]'`, console script `figureflow-mcp`)
+
+One live diagram per server process; the agent and a human edit the same canvas.
+
+- `create_diagram(source, format="json"|"mermaid", open_browser=True) -> {url, warnings}`
+- `get_diagram() -> {json, mermaid}` — current state, including human edits
+- `replace_diagram(source, format) -> {warnings}` — wholesale reload
+- `add_elements(nodes_json="[]", edges_json="[]") -> {warnings}` — incremental add
+- `close_diagram() -> {}`
+
+Validation/parse faults are returned as `{error: "<collected messages>"}` tool
+results (never protocol errors), so the repair loop reads them as content.
+
+## Python API
+
+```python
+from figureflow import Flow
+flow = Flow.from_json(envelope_str)        # or Flow.from_mermaid(mermaid_str)
+flow.serve()                                # live browser tab
+flow.to_html("out.html")                    # offline interactive snapshot
+print(flow.to_json(), flow.to_mermaid())    # export
+```

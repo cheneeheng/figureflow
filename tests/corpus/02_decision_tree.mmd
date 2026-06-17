@@ -1,0 +1,5 @@
+flowchart TD
+    Start([Start]) --> Q{Logged in?}
+    Q -->|yes| Home[Dashboard]
+    Q -->|no| Login[Login page]
+    Login --> Home

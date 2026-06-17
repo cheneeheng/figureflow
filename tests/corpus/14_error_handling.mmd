@@ -1,0 +1,6 @@
+flowchart TD
+    try[Try operation] --> ok{Success?}
+    ok -->|yes| commit[Commit]
+    ok -->|no| retry{Retries left?}
+    retry -->|yes| try
+    retry -->|no| fail[Fail & alert]

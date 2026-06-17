@@ -1,0 +1,8 @@
+flowchart TB
+    user[User] --> gw[API Gateway]
+    subgraph backend [Backend]
+        gw --> svcA[Service A]
+        gw --> svcB[Service B]
+    end
+    svcA --> db[(Database)]
+    svcB --> db

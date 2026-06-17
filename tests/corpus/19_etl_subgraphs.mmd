@@ -1,0 +1,8 @@
+flowchart TB
+    subgraph extract [Extract]
+        s1[Source 1]
+        s2[Source 2]
+    end
+    s1 --> t[Transform]
+    s2 --> t
+    t --> l[(Load)]

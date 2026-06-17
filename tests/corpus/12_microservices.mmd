@@ -1,0 +1,9 @@
+flowchart LR
+    subgraph edge [Edge]
+        lb[Load Balancer]
+    end
+    lb --> web1[Web 1]
+    lb --> web2[Web 2]
+    web1 --> cache[(Redis)]
+    web2 --> cache
+    web1 --> db[(Postgres)]

@@ -1,0 +1,6 @@
+graph TD
+    raw[/Raw Data/] --> clean[Clean]
+    clean --> feat[Feature Eng]
+    feat --> model{{Model}}
+    model --> eval[Evaluate]
+    eval --> deploy([Deploy])

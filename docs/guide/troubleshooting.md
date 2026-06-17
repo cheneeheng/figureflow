@@ -23,7 +23,7 @@ A blank cell, a text repr like `Flow()`, or an error instead of a canvas.
 **Verify the install itself** independently of rendering:
 ```bash
 python -c "import figureflow; print(figureflow.__all__)"
-# ['Shape', 'Node', 'Edge', 'Flow']
+# ['Shape', 'Node', 'Edge', 'Flow', 'FlowValidationError', 'MermaidParseError']
 ```
 
 ## A node shows as a plain box, ignoring its shape
@@ -64,11 +64,38 @@ just ran a layout, the new coordinates are available immediately after `layout()
 - **`algo` other than `"dagre"`** — only dagre is supported in v0.1.
 - **`direction` outside `TB`/`BT`/`LR`/`RL`** — use one of those four.
 
-## `from_json()` raised "Unsupported figureflow schema"
+## `from_json()` / `from_mermaid()` raised an error with several lines
 
-The snapshot was written by an incompatible schema version. figureflow `0.1.x` reads and
-writes schema `figureflow/1`. Re-export the diagram from a compatible version, or hand-edit
-the `"schema"` field only if you know the formats match.
+Import does not stop at the first mistake — it **collects every problem** and raises one
+`FlowValidationError` (JSON) or `MermaidParseError` (mermaid), one line per problem in the form
+`path: what is wrong. hint`. Read all the lines and fix them together, then re-import once.
+Common faults: an unknown `shape`, a duplicate node id, an edge naming a node that doesn't exist,
+or an unsupported `schema` major version. The structured list is on `exc.problems`. See
+[Import a diagram](how-to/import-diagrams.md#fix-a-bad-diagram-in-one-pass).
+
+## Import rejected something I expected it to accept
+
+- **`strict=True` is on.** Under strict mode, forgiving fix-ups (numeric strings like `"13"`,
+  unknown keys folded into `data`, skipped mermaid style directives) become errors. Drop
+  `strict=True` to let them pass with a warning.
+- **The mermaid uses an unsupported construct.** Only flowcharts import, and only the bounded
+  grammar in [Import a diagram → What mermaid is supported](how-to/import-diagrams.md#what-mermaid-is-supported).
+  `sequenceDiagram`/`classDiagram`/`gantt`/etc. fail by design with a message naming the type;
+  `classDef`/`style`/nested subgraphs are skipped with a warning, not imported.
+
+## Imported nodes overlap, or sit in the wrong place
+
+Imported diagrams are auto-laid out because their nodes are **unplaced**. If you mixed authored
+positions with unplaced nodes, an auto-placed node can land on an authored one — drag it clear,
+or call `flow.layout()` to re-arrange the whole graph ([Group and lay out](how-to/group-and-layout.md)).
+For an all-unplaced import (the usual case) this does not happen.
+
+## `flow.positions()` is empty right after import
+
+Expected for an all-unplaced diagram you haven't displayed yet — `positions()` reports only
+*placed* nodes. The renderer places unplaced nodes on the first render; display the flow (or call
+`flow.layout()`), then read `positions()` again. See
+[Import a diagram → Positions are optional](how-to/import-diagrams.md#positions-are-optional).
 
 ## Undo did nothing
 

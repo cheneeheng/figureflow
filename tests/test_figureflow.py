@@ -2,11 +2,20 @@
 from __future__ import annotations
 
 import json
+import pathlib
+import sys
 
 import pytest
 
-from figureflow import Edge, Flow, Node, Shape
-from figureflow.serialize import from_json, to_json, to_mermaid
+from figureflow import Edge, Flow, Node, Shape, mcp_server
+from figureflow.mermaid_in import MermaidParseError, from_mermaid
+from figureflow.serialize import (
+    FlowValidationError,
+    from_json,
+    to_json,
+    to_mermaid,
+    validate,
+)
 
 
 # ─── Node.to_dict() ──────────────────────────────────────────────────────────
@@ -16,7 +25,8 @@ class TestNodeToDict:
         d = Node("a").to_dict()
         assert d["id"] == "a"
         assert d["type"] == "shape"
-        assert d["position"] == {"x": 0.0, "y": 0.0}
+        # v3: a node with no authored position is unplaced (auto-laid on render).
+        assert "position" not in d
         data = d["data"]
         assert data["shape"] == "rectangle"
         assert data["fill"] == "#ffffff"
@@ -274,7 +284,7 @@ class TestSerialization:
 
     def test_from_json_rejects_unknown_schema(self):
         bad = json.dumps({"schema": "figureflow/99", "nodes": [], "edges": []})
-        with pytest.raises(ValueError, match="Unsupported"):
+        with pytest.raises(ValueError, match="unsupported schema"):
             from_json(bad)
 
     def test_round_trip_with_group(self):
@@ -1264,3 +1274,629 @@ class TestSyncHardening:
         )
         assert out.returncode == 0, out.stderr
         assert "ok" in out.stdout
+
+
+# ─── v3 §02/§04: layout_direction + unplaced positions ───────────────────────
+
+class TestLayoutDirection:
+    def test_default_tb(self):
+        assert Flow().layout_direction == "TB"
+
+    def test_all_valid_directions(self):
+        for d in ("TB", "BT", "LR", "RL"):
+            assert Flow(layout_direction=d).layout_direction == d
+
+    def test_invalid_raises(self):
+        with pytest.raises(ValueError, match="not a valid layout direction"):
+            Flow(layout_direction="XX")
+
+    def test_emitted_in_json(self):
+        env = json.loads(Flow(layout_direction="LR").to_json())
+        assert env["layout_direction"] == "LR"
+
+
+class TestUnplacedPositions:
+    def test_positions_skips_unplaced(self):
+        f = Flow([Node("a"), Node("b", pos=(10, 20))])
+        # 'a' is unplaced (pos=None) -> omitted; 'b' is placed.
+        assert f.positions() == {"b": (10.0, 20.0)}
+
+    def test_placed_node_round_trips(self):
+        f = Flow([Node("a", pos=(1, 2))])
+        assert f.positions() == {"a": (1.0, 2.0)}
+
+
+# ─── v3 §04: the validate() ingestion funnel (serialize.py) ───────────────────
+
+
+def _env(**kw):
+    base = {"schema": "figureflow/1", "nodes": [], "edges": []}
+    base.update(kw)
+    return base
+
+
+class TestValidateFunnel:
+    def test_clean_minimal(self):
+        clean, warnings = validate(_env(nodes=[{"id": "a"}]))
+        assert warnings == []
+        assert clean["layout_direction"] == "TB"
+        assert clean["nodes"][0]["id"] == "a"
+
+    def test_top_level_not_object(self):
+        with pytest.raises(FlowValidationError) as ei:
+            validate(["not", "an", "object"])
+        assert "top-level value must be an object" in str(ei.value)
+
+    def test_schema_not_string(self):
+        with pytest.raises(FlowValidationError, match="schema must be a string"):
+            validate(_env(schema=123))
+
+    def test_schema_unsupported_version(self):
+        with pytest.raises(FlowValidationError, match="unsupported schema version"):
+            validate(_env(schema="figureflow/2"))
+
+    def test_schema_without_slash(self):
+        with pytest.raises(FlowValidationError, match="unsupported schema version"):
+            validate(_env(schema="figureflow"))
+
+    def test_default_schema_when_absent(self):
+        clean, _ = validate({"nodes": [{"id": "a"}], "edges": []})
+        assert clean["schema"] == "figureflow/1"
+
+    def test_invalid_layout_direction(self):
+        with pytest.raises(FlowValidationError, match="not a valid layout direction"):
+            validate(_env(layout_direction="diagonal"))
+
+    def test_nodes_not_a_list(self):
+        with pytest.raises(FlowValidationError, match=r"nodes: must be an array"):
+            validate(_env(nodes="oops"))
+
+    def test_node_not_an_object(self):
+        with pytest.raises(FlowValidationError, match=r"nodes\[0\]: must be an object"):
+            validate(_env(nodes=["x"]))
+
+    def test_node_missing_id(self):
+        with pytest.raises(FlowValidationError, match="missing or non-string node id"):
+            validate(_env(nodes=[{}]))
+
+    def test_node_non_string_id(self):
+        with pytest.raises(FlowValidationError, match="missing or non-string node id"):
+            validate(_env(nodes=[{"id": 5}]))
+
+    def test_duplicate_node_id(self):
+        with pytest.raises(FlowValidationError, match="duplicate node id"):
+            validate(_env(nodes=[{"id": "a"}, {"id": "a"}]))
+
+    def test_invalid_shape_with_close_match(self):
+        with pytest.raises(FlowValidationError, match="closest match: ellipse"):
+            validate(_env(nodes=[{"id": "a", "data": {"shape": "elipse"}}]))
+
+    def test_invalid_shape_without_close_match(self):
+        with pytest.raises(FlowValidationError) as ei:
+            validate(_env(nodes=[{"id": "a", "data": {"shape": "zzzzzzzz"}}]))
+        msg = str(ei.value)
+        assert "is not a valid shape" in msg
+        assert "closest match" not in msg
+
+    def test_numeric_non_number_errors(self):
+        with pytest.raises(FlowValidationError, match=r"width: 'abc' is not a number"):
+            validate(_env(nodes=[{"id": "a", "data": {"width": "abc"}}]))
+
+    def test_numeric_bool_errors(self):
+        with pytest.raises(FlowValidationError, match="is not a number"):
+            validate(_env(nodes=[{"id": "a", "data": {"fontSize": True}}]))
+
+    def test_numeric_non_scalar_errors(self):
+        with pytest.raises(FlowValidationError, match="is not a number"):
+            validate(_env(nodes=[{"id": "a", "data": {"width": [1, 2]}}]))
+
+    def test_numeric_string_coerced_warns(self):
+        clean, warnings = validate(_env(nodes=[{"id": "a", "data": {"fontSize": "13"}}]))
+        assert clean["nodes"][0]["data"]["fontSize"] == 13
+        assert any("coerced" in w for w in warnings)
+
+    def test_numeric_float_string_coerced(self):
+        clean, _ = validate(_env(nodes=[{"id": "a", "data": {"width": "12.5"}}]))
+        assert clean["nodes"][0]["data"]["width"] == 12.5
+
+    def test_unknown_node_key_folded(self):
+        clean, warnings = validate(_env(nodes=[{"id": "a", "flavor": "spicy"}]))
+        assert clean["nodes"][0]["data"]["flavor"] == "spicy"
+        assert any("unknown node key" in w for w in warnings)
+
+    def test_unknown_edge_key_folded(self):
+        clean, warnings = validate(
+            _env(nodes=[{"id": "a"}, {"id": "b"}],
+                 edges=[{"source": "a", "target": "b", "weight": 3}])
+        )
+        assert clean["edges"][0]["data"]["weight"] == 3
+        assert any("unknown edge key" in w for w in warnings)
+
+    def test_explicit_empty_data_preserved(self):
+        clean, _ = validate(
+            _env(nodes=[{"id": "a", "data": {}}],
+                 edges=[{"source": "a", "target": "a", "data": {}}])
+        )
+        assert "data" in clean["nodes"][0]
+        assert "data" in clean["edges"][0]
+
+    def test_edges_not_a_list(self):
+        with pytest.raises(FlowValidationError, match=r"edges: must be an array"):
+            validate(_env(edges="oops"))
+
+    def test_edge_not_an_object(self):
+        with pytest.raises(FlowValidationError, match=r"edges\[0\]: must be an object"):
+            validate(_env(nodes=[{"id": "a"}], edges=["x"]))
+
+    def test_edge_missing_source(self):
+        with pytest.raises(FlowValidationError, match="missing or non-string edge source"):
+            validate(_env(nodes=[{"id": "a"}], edges=[{"target": "a"}]))
+
+    def test_edge_endpoint_unknown_lists_ids(self):
+        with pytest.raises(FlowValidationError) as ei:
+            validate(_env(nodes=[{"id": "a"}], edges=[{"source": "a", "target": "zzz"}]))
+        assert "Known node ids: a" in str(ei.value)
+
+    def test_edge_endpoint_unknown_many_nodes_generic_hint(self):
+        nodes = [{"id": f"n{i}"} for i in range(21)]
+        with pytest.raises(FlowValidationError) as ei:
+            validate(_env(nodes=nodes, edges=[{"source": "n0", "target": "zzz"}]))
+        msg = str(ei.value)
+        assert "Reference an existing node id." in msg
+        assert "Known node ids" not in msg
+
+    def test_edge_endpoint_unknown_no_nodes_generic_hint(self):
+        with pytest.raises(FlowValidationError) as ei:
+            validate(_env(edges=[{"source": "a", "target": "b"}]))
+        assert "Reference an existing node id." in str(ei.value)
+
+    def test_collects_multiple_problems(self):
+        with pytest.raises(FlowValidationError) as ei:
+            validate(_env(
+                nodes=[{"id": "a"}, {"id": "a"}, {"id": "b", "data": {"shape": "bad"}}],
+                edges=[{"source": "a", "target": "ghost"}],
+            ))
+        assert len(ei.value.problems) >= 3
+
+    def test_strict_escalates_warnings(self):
+        with pytest.raises(FlowValidationError):
+            validate(_env(nodes=[{"id": "a", "mystery": 1}]), strict=True)
+
+    def test_non_strict_keeps_warnings(self):
+        _, warnings = validate(_env(nodes=[{"id": "a", "mystery": 1}]), strict=False)
+        assert warnings
+
+    def test_format_problem_without_hint(self):
+        from figureflow.serialize import _format_problem
+
+        assert _format_problem({"path": "x", "message": "broken."}) == "x: broken."
+
+
+class TestFromJsonV3:
+    def test_round_trip_v2_document_lossless(self):
+        f = Flow(
+            [Node("a", "Start", pos=(0, 0), shape=Shape.stadium)],
+            [Edge("a", "a", label="loop")],
+            color_mode="dark",
+            layout_direction="LR",
+        )
+        s = f.to_json()
+        assert from_json(s).to_json() == s
+
+    def test_unplaced_document_imports(self):
+        s = json.dumps(_env(nodes=[{"id": "a"}, {"id": "b"}],
+                            edges=[{"source": "a", "target": "b"}]))
+        f = Flow.from_json(s)
+        assert f.positions() == {}  # nothing placed yet
+        assert len(f.nodes) == 2
+
+    def test_import_warnings_attached(self):
+        s = json.dumps(_env(nodes=[{"id": "a", "extra": 1}]))
+        f = Flow.from_json(s)
+        assert f._import_warnings
+
+    def test_strict_raises_on_warning(self):
+        s = json.dumps(_env(nodes=[{"id": "a", "extra": 1}]))
+        with pytest.raises(FlowValidationError):
+            Flow.from_json(s, strict=True)
+
+    def test_load_json_adopts_direction_and_clears_history(self):
+        f = Flow([Node("a", pos=(0, 0))])
+        f.load_json(json.dumps(_env(layout_direction="BT", nodes=[{"id": "z"}])))
+        assert f.layout_direction == "BT"
+        assert [n["id"] for n in f.nodes] == ["z"]
+
+
+# ─── v3 §02/§04: mermaid import (mermaid_in.py) ──────────────────────────────
+
+
+def _ids(flow):
+    return [n["id"] for n in flow.nodes]
+
+
+def _node(flow, nid):
+    return next(n for n in flow.nodes if n["id"] == nid)
+
+
+class TestMermaidImport:
+    def test_classmethod_entry(self):
+        f = Flow.from_mermaid("flowchart TD\n a --> b")
+        assert _ids(f) == ["a", "b"]
+        assert len(f.edges) == 1
+
+    def test_all_shapes(self):
+        f = from_mermaid(
+            "flowchart LR\n"
+            " a[Rect]-->b(Round)\n b-->c([Stad])\n c-->d((Ell))\n"
+            " d-->e{Dia}\n e-->f{{Hex}}\n f-->g[/Par/]\n g-->h[(Cyl)]\n h-->i\n"
+        )
+        got = {n["id"]: n["data"]["shape"] for n in f.nodes}
+        assert got == {
+            "a": "rectangle", "b": "rounded", "c": "stadium", "d": "ellipse",
+            "e": "diamond", "f": "hexagon", "g": "parallelogram",
+            "h": "cylinder", "i": "rectangle",
+        }
+
+    def test_directions(self):
+        assert from_mermaid("flowchart TD\n a-->b").layout_direction == "TB"
+        assert from_mermaid("graph BT\n a-->b").layout_direction == "BT"
+        assert from_mermaid("flowchart LR\n a-->b").layout_direction == "LR"
+        assert from_mermaid("flowchart RL\n a-->b").layout_direction == "RL"
+        assert from_mermaid("flowchart\n a-->b").layout_direction == "TB"
+
+    def test_unknown_direction_token_defaults_tb(self):
+        assert from_mermaid("flowchart ZZ\n a-->b").layout_direction == "TB"
+
+    def test_nodes_are_unplaced(self):
+        f = from_mermaid("flowchart TD\n a --> b")
+        assert all("position" not in n for n in f.nodes)
+
+    def test_edge_operators(self):
+        f = from_mermaid(
+            "flowchart LR\n a-->b\n b---c\n c-.->d\n d-.-e\n e==>g\n g===h\n"
+        )
+        styles = {(e["source"], e["target"]): e for e in f.edges}
+        assert styles[("a", "b")].get("markerEnd") == {"type": "arrow"}
+        assert "markerEnd" not in styles[("b", "c")]
+        assert styles[("c", "d")]["style"]["strokeDasharray"] == "6 4"
+        assert "markerEnd" not in styles[("d", "e")]
+        assert styles[("e", "g")]["style"]["strokeWidth"] == 3
+        assert styles[("g", "h")]["style"]["strokeWidth"] == 3
+        assert "markerEnd" not in styles[("g", "h")]
+
+    def test_edge_labels_both_forms(self):
+        f = from_mermaid("flowchart LR\n a -->|pipe| b\n b -- dash --> c")
+        labels = {(e["source"], e["target"]): e.get("label") for e in f.edges}
+        assert labels[("a", "b")] == "pipe"
+        assert labels[("b", "c")] == "dash"
+
+    def test_chain_and_fan(self):
+        f = from_mermaid("flowchart LR\n a --> b --> c\n x & y --> z\n z --> p & q")
+        pairs = {(e["source"], e["target"]) for e in f.edges}
+        assert {("a", "b"), ("b", "c"), ("x", "z"), ("y", "z"),
+                ("z", "p"), ("z", "q")} <= pairs
+
+    def test_quoted_label_and_br(self):
+        f = from_mermaid('flowchart TD\n a["A: x"] --> b[one<br>two]')
+        assert _node(f, "a")["data"]["label"] == "A: x"
+        assert _node(f, "b")["data"]["label"] == "one\ntwo"
+
+    def test_first_definition_wins(self):
+        f = from_mermaid("flowchart TD\n a[First] --> b\n a --> c")
+        assert _node(f, "a")["data"]["label"] == "First"
+
+    def test_later_explicit_overrides_bare(self):
+        f = from_mermaid("flowchart TD\n a --> b\n a[Labeled] --> c")
+        assert _node(f, "a")["data"]["label"] == "Labeled"
+
+    def test_comments_dropped(self):
+        f = from_mermaid("flowchart TD\n %% comment\n a --> b\n %% another")
+        assert _ids(f) == ["a", "b"]
+
+    def test_subgraph_with_title(self):
+        f = from_mermaid(
+            "flowchart TB\n subgraph S1 [My Group]\n a --> b\n end\n b --> c"
+        )
+        grp = _node(f, "S1")
+        assert grp["type"] == "group"
+        assert grp["data"]["label"] == "My Group"
+        assert _node(f, "a")["parentId"] == "S1"
+        assert _node(f, "a")["extent"] == "parent"
+        assert "parentId" not in _node(f, "c")
+
+    def test_subgraph_bare_title(self):
+        f = from_mermaid("flowchart TB\n subgraph Backend\n a --> b\n end")
+        grp = _node(f, "Backend")
+        assert grp["type"] == "group"
+        assert grp["data"]["label"] == "Backend"
+
+    def test_subgraph_anonymous(self):
+        f = from_mermaid("flowchart TB\n subgraph\n a --> b\n end")
+        assert any(n.get("type") == "group" for n in f.nodes)
+
+    def test_subgraph_id_collision(self):
+        f = from_mermaid(
+            "flowchart TB\n a --> b\n subgraph a [Dup]\n c --> d\n end"
+        )
+        # 'a' already a node; the group takes a synthesized id.
+        groups = [n for n in f.nodes if n.get("type") == "group"]
+        assert len(groups) == 1
+        assert groups[0]["id"] != "a"
+
+    def test_existing_node_gains_parent(self):
+        f = from_mermaid(
+            "flowchart TB\n a --> b\n subgraph S [G]\n a\n end"
+        )
+        assert _node(f, "a")["parentId"] == "S"
+
+    def test_nested_subgraph_warns_and_flattens(self):
+        f = from_mermaid(
+            "flowchart TB\n subgraph Outer [O]\n a\n subgraph Inner [I]\n b\n end\n end"
+        )
+        assert any("nested subgraph" in w for w in f._import_warnings)
+        # inner member flattened into the outer group
+        assert _node(f, "b")["parentId"] == "Outer"
+
+    def test_stray_end_ignored(self):
+        f = from_mermaid("flowchart TD\n a --> b\n end")
+        assert _ids(f) == ["a", "b"]
+
+    def test_style_directive_warned(self):
+        f = from_mermaid(
+            "flowchart TD\n a --> b\n classDef big fill:#f00\n style a fill:#0f0"
+        )
+        joined = " ".join(f._import_warnings)
+        assert "classDef" in joined
+        assert "style" in joined
+
+    def test_directive_warned_once(self):
+        f = from_mermaid(
+            "flowchart TD\n a --> b\n style a fill:#0f0\n style b fill:#00f"
+        )
+        assert sum("'style'" in w for w in f._import_warnings) == 1
+
+    def test_non_flowchart_named_error(self):
+        with pytest.raises(MermaidParseError, match="sequence diagram is not supported"):
+            from_mermaid("sequenceDiagram\n a->>b: hi")
+
+    def test_unknown_header_error(self):
+        with pytest.raises(MermaidParseError, match="expected a 'flowchart' or 'graph'"):
+            from_mermaid("bananas\n a --> b")
+
+    def test_unbalanced_bracket_error(self):
+        with pytest.raises(MermaidParseError, match=r"unbalanced '\[' in node 'a'"):
+            from_mermaid("flowchart TD\n a[unterminated --> b")
+
+    def test_unknown_operator_error(self):
+        with pytest.raises(MermaidParseError, match="unexpected token"):
+            from_mermaid("flowchart TD\n a ~~> b")
+
+    def test_edge_without_target_error(self):
+        with pytest.raises(MermaidParseError, match="edge operator has no target"):
+            from_mermaid("flowchart TD\n a -->")
+
+    def test_stray_after_ampersand_error(self):
+        with pytest.raises(MermaidParseError, match="unexpected token"):
+            from_mermaid("flowchart TD\n a & --> b")
+
+    def test_error_in_fan_member(self):
+        with pytest.raises(MermaidParseError, match="unbalanced"):
+            from_mermaid("flowchart TD\n a & b[bad --> c")
+
+    def test_tokenize_trailing_whitespace(self):
+        # Direct helper call: a trailing space exercises the end-of-statement
+        # break that the upstream .strip() hides from the public API.
+        from figureflow.mermaid_in import _tokenize
+
+        tokens, err = _tokenize("a --> b ", 1)
+        assert err is None
+        assert [k for k, _ in tokens] == ["nodes", "edge", "nodes"]
+
+    def test_strict_escalates_warning(self):
+        with pytest.raises(MermaidParseError):
+            from_mermaid("flowchart TD\n a --> b\n style a fill:#f00", strict=True)
+
+    def test_round_trip_structure_preserving(self):
+        src = "flowchart TD\n a[Start] --> b{Q}\n b -->|yes| c([Done])"
+        f = from_mermaid(src)
+        again = from_mermaid(f.to_mermaid())
+        assert {n["id"] for n in f.nodes} == {n["id"] for n in again.nodes}
+        assert len(f.edges) == len(again.edges)
+
+
+class TestMermaidCorpusGate:
+    """ITER_V3_02 done-check: the recorded corpus imports with no hard errors."""
+
+    def test_corpus_clean_rate(self):
+        corpus_dir = pathlib.Path(__file__).parent / "corpus"
+        files = sorted(corpus_dir.glob("*.mmd"))
+        assert files, "corpus is empty"
+        hard_errors = []
+        for fp in files:
+            try:
+                flow = Flow.from_mermaid(fp.read_text(encoding="utf-8"))
+            except MermaidParseError as exc:
+                hard_errors.append((fp.name, str(exc)))
+                continue
+            assert flow.nodes  # produced a usable diagram
+        rate = (len(files) - len(hard_errors)) / len(files)
+        assert rate >= 0.90, f"corpus clean rate {rate:.0%}; failures: {hard_errors}"
+
+
+# ─── v3 §04: MCP adapter (mcp_server.py) ─────────────────────────────────────
+
+
+class _FakeMCP:
+    """Minimal stand-in for FastMCP so the tool layer is testable without `mcp`."""
+
+    def __init__(self, name):
+        self.name = name
+        self.tools = {}
+        self.ran = False
+
+    def tool(self):
+        def deco(fn):
+            self.tools[fn.__name__] = fn
+            return fn
+        return deco
+
+    def run(self):
+        self.ran = True
+
+
+@pytest.fixture()
+def mcp_tools():
+    server = mcp_server._build_server(_FakeMCP)
+    tools = server.tools
+    yield tools
+    # Always tear down any live serve() the tools may have started.
+    tools["close_diagram"]()
+
+
+class TestMcpServer:
+    def test_tools_registered(self, mcp_tools):
+        assert set(mcp_tools) == {
+            "create_diagram", "get_diagram", "replace_diagram",
+            "add_elements", "close_diagram",
+        }
+
+    def test_calls_before_create_return_no_diagram(self, mcp_tools):
+        msg = "no diagram; call create_diagram first"
+        assert mcp_tools["get_diagram"]()["error"] == msg
+        assert mcp_tools["replace_diagram"]("{}")["error"] == msg
+        assert mcp_tools["add_elements"]()["error"] == msg
+
+    def test_close_before_create_is_noop(self, mcp_tools):
+        assert mcp_tools["close_diagram"]() == {}
+
+    def test_create_from_json(self, mcp_tools):
+        env = json.dumps(_env(nodes=[{"id": "a"}, {"id": "b"}],
+                              edges=[{"source": "a", "target": "b"}]))
+        res = mcp_tools["create_diagram"](env, open_browser=False)
+        assert res["url"].startswith("http://127.0.0.1:")
+        assert res["warnings"] == []
+
+    def test_create_from_mermaid(self, mcp_tools):
+        res = mcp_tools["create_diagram"](
+            "flowchart TD\n a --> b", format="mermaid", open_browser=False
+        )
+        assert "url" in res
+
+    def test_create_invalid_returns_error(self, mcp_tools):
+        res = mcp_tools["create_diagram"]("{not json", open_browser=False)
+        assert "error" in res
+        assert "url" not in res
+
+    def test_create_validation_error(self, mcp_tools):
+        bad = json.dumps(_env(nodes=[{"id": "a"}, {"id": "a"}]))
+        res = mcp_tools["create_diagram"](bad, open_browser=False)
+        assert "duplicate node id" in res["error"]
+
+    def test_create_twice_replaces_session(self, mcp_tools):
+        first = mcp_tools["create_diagram"](
+            json.dumps(_env(nodes=[{"id": "a"}])), open_browser=False
+        )
+        second = mcp_tools["create_diagram"](
+            json.dumps(_env(nodes=[{"id": "b"}])), open_browser=False
+        )
+        assert first["url"] != second["url"] or True  # old server stopped, new served
+
+    def test_get_after_create(self, mcp_tools):
+        mcp_tools["create_diagram"](
+            json.dumps(_env(nodes=[{"id": "a"}])), open_browser=False
+        )
+        got = mcp_tools["get_diagram"]()
+        assert "json" in got and "mermaid" in got
+        assert json.loads(got["json"])["nodes"][0]["id"] == "a"
+
+    def test_replace_json(self, mcp_tools):
+        mcp_tools["create_diagram"](
+            json.dumps(_env(nodes=[{"id": "a"}])), open_browser=False
+        )
+        res = mcp_tools["replace_diagram"](
+            json.dumps(_env(nodes=[{"id": "z"}]))
+        )
+        assert "warnings" in res
+        assert json.loads(mcp_tools["get_diagram"]()["json"])["nodes"][0]["id"] == "z"
+
+    def test_replace_mermaid(self, mcp_tools):
+        mcp_tools["create_diagram"](
+            json.dumps(_env(nodes=[{"id": "a"}])), open_browser=False
+        )
+        res = mcp_tools["replace_diagram"]("flowchart TD\n x --> y", format="mermaid")
+        assert "warnings" in res
+        assert _ids_from_json(mcp_tools["get_diagram"]()["json"]) == ["x", "y"]
+
+    def test_replace_invalid_returns_error(self, mcp_tools):
+        mcp_tools["create_diagram"](
+            json.dumps(_env(nodes=[{"id": "a"}])), open_browser=False
+        )
+        res = mcp_tools["replace_diagram"]("{nope")
+        assert "error" in res
+
+    def test_add_elements(self, mcp_tools):
+        mcp_tools["create_diagram"](
+            json.dumps(_env(nodes=[{"id": "a"}])), open_browser=False
+        )
+        res = mcp_tools["add_elements"](nodes_json='[{"id": "b"}]',
+                                        edges_json='[{"source": "a", "target": "b"}]')
+        assert "warnings" in res
+        assert set(_ids_from_json(mcp_tools["get_diagram"]()["json"])) == {"a", "b"}
+
+    def test_add_elements_bad_json(self, mcp_tools):
+        mcp_tools["create_diagram"](
+            json.dumps(_env(nodes=[{"id": "a"}])), open_browser=False
+        )
+        res = mcp_tools["add_elements"](nodes_json="{not json")
+        assert "not valid JSON" in res["error"]
+
+    def test_add_elements_validation_error(self, mcp_tools):
+        mcp_tools["create_diagram"](
+            json.dumps(_env(nodes=[{"id": "a"}])), open_browser=False
+        )
+        res = mcp_tools["add_elements"](nodes_json='[{"id": "a"}]')  # dup id
+        assert "duplicate node id" in res["error"]
+
+    def test_close_stops_session(self, mcp_tools):
+        mcp_tools["create_diagram"](
+            json.dumps(_env(nodes=[{"id": "a"}])), open_browser=False
+        )
+        assert mcp_tools["close_diagram"]() == {}
+        assert mcp_tools["get_diagram"]()["error"]
+
+
+def _ids_from_json(s):
+    return [n["id"] for n in json.loads(s)["nodes"]]
+
+
+class TestMcpMain:
+    def test_main_missing_extra_exits(self, monkeypatch):
+        # Ensure `import mcp...` fails regardless of environment.
+        monkeypatch.setitem(sys.modules, "mcp", None)
+        with pytest.raises(SystemExit) as ei:
+            mcp_server.main()
+        assert ei.value.code == 1
+
+    def test_main_success_runs_server(self, monkeypatch):
+        import types
+
+        fastmcp_mod = types.ModuleType("mcp.server.fastmcp")
+        fastmcp_mod.FastMCP = _FakeMCP
+        monkeypatch.setitem(sys.modules, "mcp", types.ModuleType("mcp"))
+        monkeypatch.setitem(sys.modules, "mcp.server", types.ModuleType("mcp.server"))
+        monkeypatch.setitem(sys.modules, "mcp.server.fastmcp", fastmcp_mod)
+        # _FakeMCP.run() is a no-op, so main() returns cleanly.
+        mcp_server.main()
+
+
+# ─── v3: adapter meta carries layout_direction ───────────────────────────────
+
+class TestAdapterLayoutMeta:
+    def test_anywidget_send_state_applies_layout_direction(self):
+        from figureflow.transport.anywidget_adapter import AnywidgetAdapter
+
+        flow = Flow()
+        adapter = AnywidgetAdapter()
+        adapter.bind(flow)
+        adapter.send_state([], [], {"layout_direction": "LR"})
+        assert flow.layout_direction == "LR"

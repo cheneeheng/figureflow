@@ -51,7 +51,9 @@ class Transport(ABC):
         Args:
             nodes: The node payloads in channel (``to_dict``) form.
             edges: The edge payloads in channel form.
-            meta: Flow-level settings — ``color_mode``, ``fit_view``, ``height``.
+            meta: Flow-level settings — ``color_mode``, ``fit_view``,
+                ``height``, ``layout_direction`` (the rankdir the renderer's
+                unplaced-node auto-layout uses, ITER_V3_01 §02).
         """
 
     @abstractmethod

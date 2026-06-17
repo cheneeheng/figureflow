@@ -1,0 +1,6 @@
+flowchart TD
+    land[Landing] --> signup{Sign up?}
+    signup -->|yes| onboard[Onboarding]
+    signup -->|no| browse[Browse]
+    onboard --> active[Active User]
+    browse --> signup

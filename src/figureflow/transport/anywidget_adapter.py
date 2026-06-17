@@ -52,6 +52,8 @@ class AnywidgetAdapter(Transport):
             flow.fit_view = meta["fit_view"]
         if "height" in meta:
             flow.height = meta["height"]
+        if "layout_direction" in meta:
+            flow.layout_direction = meta["layout_direction"]
         self._last_pushed = {"nodes": list(nodes), "edges": list(edges)}
 
     def on_change(self, handler: ChangeHandler) -> None:

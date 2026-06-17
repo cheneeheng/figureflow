@@ -16,6 +16,7 @@ function readMeta(model) {
     colorMode: model.get("color_mode") || "light",
     fitView: model.get("fit_view") !== false,
     height: model.get("height") || 480,
+    layoutDirection: model.get("layout_direction") || "TB",
     nodeModules: model.get("_node_modules") || {},
     edgeModules: model.get("_edge_modules") || {},
   };
@@ -40,12 +41,14 @@ export function createAnywidgetTransport(model) {
       model.on("change:nodes", onNodes);
       model.on("change:edges", onEdges);
       model.on("change:color_mode", onMeta);
+      model.on("change:layout_direction", onMeta);
       model.on("change:_node_modules", onMeta);
       model.on("change:_edge_modules", onMeta);
       return () => {
         model.off("change:nodes", onNodes);
         model.off("change:edges", onEdges);
         model.off("change:color_mode", onMeta);
+        model.off("change:layout_direction", onMeta);
         model.off("change:_node_modules", onMeta);
         model.off("change:_edge_modules", onMeta);
       };

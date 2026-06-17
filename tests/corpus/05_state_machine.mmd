@@ -1,0 +1,5 @@
+flowchart LR
+    idle((idle)) --> running((running))
+    running --> paused((paused))
+    paused --> running
+    running --> done((done))
