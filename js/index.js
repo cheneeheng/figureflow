@@ -522,9 +522,18 @@ function App({ transport }) {
     skipHistoryRef.current = false;
     setNodes(placed);
     transport.pushChange({ nodes: placed });
-    // The initial fitView ran against the unplaced (degenerate) layout; refit once
-    // the placed nodes have rendered so the canvas frames them.
-    requestAnimationFrame(() => rfRef.current && rfRef.current.fitView());
+    // The initial fitView ran against the unplaced (degenerate) layout. Refit once
+    // the placed nodes are *measured* — React Flow populates `node.measured` only
+    // after its ResizeObserver fires, which a single rAF can beat, leaving fitView
+    // to frame a zero-size box (empty canvas). Poll a frame at a time until ready.
+    const fitWhenMeasured = () => {
+      const inst = rfRef.current;
+      const ready =
+        inst && inst.getNodes().every((n) => n.measured && n.measured.width);
+      if (ready) inst.fitView();
+      else requestAnimationFrame(fitWhenMeasured);
+    };
+    requestAnimationFrame(fitWhenMeasured);
   }, [nodes, transport]);
 
   // ── Layout request (Python pushes a "layout" event; dagre runs client-side) ─
