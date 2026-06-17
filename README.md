@@ -1,5 +1,13 @@
 # figureflow
 
+> [!WARNING]
+> **This project has been sunset and is no longer maintained.** It is archived
+> as-is: the code stays public and installable, frozen at its current version,
+> but there will be no further development, bug fixes, or compatibility updates.
+> **Use at your own risk** — it may break with future versions of Jupyter,
+> anywidget, or React Flow. See [`sunset.md`](sunset.md) for why, what it became,
+> and what to use instead.
+
 Interactive flow diagrams in Python, styled shape-by-shape.
 
 figureflow is a [Jupyter widget](https://anywidget.dev) for building and displaying
